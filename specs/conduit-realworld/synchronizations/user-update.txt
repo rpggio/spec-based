@@ -1,0 +1,93 @@
+# User Update Synchronizations
+
+sync AuthenticateUpdateRequest
+when {
+    Web/request: [ method: "PUT" ; path: "/api/user" ] => [ request: ?req ]
+}
+then {
+    Web/getAuthToken: [ request: ?req ]
+}
+
+sync VerifyUpdateToken
+when {
+    Web/request: [ method: "PUT" ; path: "/api/user" ] => [ request: ?req ]
+    Web/getAuthToken: [ request: ?req ] => [ token: ?token ]
+}
+then {
+    JWT/verify: [ token: ?token ]
+}
+
+sync UpdateUserProfile
+when {
+    Web/request: [ method: "PUT" ; path: "/api/user" ; body: ?body ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?userId ]
+}
+where {
+    bind ( ?body["user"]["email"] as ?email )
+    bind ( ?body["user"]["bio"] as ?bio )
+    bind ( ?body["user"]["image"] as ?image )
+}
+then {
+    User/update: [ user: ?userId ; email: ?email ; bio: ?bio ; image: ?image ]
+}
+
+sync UpdateUserPassword
+when {
+    Web/request: [ method: "PUT" ; path: "/api/user" ; body: ?body ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?userId ]
+}
+where {
+    bind ( ?body["user"]["password"] as ?password )
+    FILTER ( ?password != null )
+}
+then {
+    Password/set: [ user: ?userId ; password: ?password ]
+}
+
+sync RespondUpdateSuccess
+when {
+    Web/request: [ method: "PUT" ; path: "/api/user" ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?userId ]
+    User/update: [ user: ?userId ] => []
+}
+where {
+    User: { ?userId email: ?email ; username: ?username ; bio: ?bio ; image: ?image }
+    JWT: { ?userId token: ?token }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 200 ;
+        body: {
+            "user": {
+                "email": ?email,
+                "username": ?username,
+                "bio": ?bio,
+                "image": ?image,
+                "token": ?token
+            }
+        } ]
+}
+
+sync HandleUpdateAuthError
+when {
+    Web/request: [ method: "PUT" ; path: "/api/user" ] => [ request: ?req ]
+    JWT/verify: [] => [ error: ?error ]
+}
+then {
+    Web/respondError: [
+        request: ?req ;
+        status: 401 ;
+        error: "unauthorized" ]
+}
+
+sync HandleUpdateValidationError
+when {
+    Web/request: [ method: "PUT" ; path: "/api/user" ] => [ request: ?req ]
+    User/update: [] => [ error: ?error ]
+}
+then {
+    Web/respondValidationError: [
+        request: ?req ;
+        errors: { "body": [?error] } ]
+}

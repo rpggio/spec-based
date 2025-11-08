@@ -1,0 +1,23 @@
+# Tag Synchronizations
+
+sync ListTags
+when {
+    Web/request: [ method: "GET" ; path: "/api/tags" ] => [ request: ?req ]
+}
+then {
+    Tag/list: []
+}
+
+sync RespondListTags
+when {
+    Web/request: [ method: "GET" ; path: "/api/tags" ] => [ request: ?req ]
+    Tag/list: [] => [ tags: ?tags ]
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 200 ;
+        body: {
+            "tags": ?tags
+        } ]
+}

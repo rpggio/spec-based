@@ -1,0 +1,297 @@
+# Comment Synchronizations
+
+sync AuthenticateCreateComment
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles/:slug/comments" ] => [ request: ?req ]
+}
+then {
+    Web/getAuthToken: [ request: ?req ]
+}
+
+sync VerifyCreateCommentToken
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles/:slug/comments" ] => [ request: ?req ]
+    Web/getAuthToken: [ request: ?req ] => [ token: ?token ]
+}
+then {
+    JWT/verify: [ token: ?token ]
+}
+
+sync RetrieveArticleForComment
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles/:slug/comments" ; params: ?params ] => [ request: ?req ]
+}
+where {
+    bind ( ?params["slug"] as ?slug )
+}
+then {
+    Article/getBySlug: [ slug: ?slug ]
+}
+
+sync CreateComment
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles/:slug/comments" ; body: ?body ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?authorId ]
+    Article/getBySlug: [] => [ article: ?articleId ]
+}
+where {
+    bind ( uuid() as ?commentId )
+    bind ( nextId() as ?id )
+    bind ( ?body["comment"]["body"] as ?bodyText )
+}
+then {
+    Comment/create: [
+        comment: ?commentId ;
+        id: ?id ;
+        body: ?bodyText ;
+        article: ?articleId ;
+        author: ?authorId ]
+}
+
+sync RespondCreateCommentSuccess
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles/:slug/comments" ] => [ request: ?req ]
+    Comment/create: [] => [ comment: ?commentId ]
+    JWT/verify: [] => [ user: ?authorId ]
+}
+where {
+    Comment: { ?commentId id: ?id ; body: ?bodyText ; createdAt: ?createdAt ; updatedAt: ?updatedAt }
+    User: { ?authorId username: ?username ; bio: ?bio ; image: ?image }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 201 ;
+        body: {
+            "comment": {
+                "id": ?id,
+                "body": ?bodyText,
+                "createdAt": ?createdAt,
+                "updatedAt": ?updatedAt,
+                "author": {
+                    "username": ?username,
+                    "bio": ?bio,
+                    "image": ?image,
+                    "following": false
+                }
+            }
+        } ]
+}
+
+sync HandleCreateCommentArticleNotFound
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles/:slug/comments" ] => [ request: ?req ]
+    Article/getBySlug: [] => [ error: ?error ]
+}
+then {
+    Web/respondError: [
+        request: ?req ;
+        status: 404 ;
+        error: "article not found" ]
+}
+
+sync HandleCreateCommentValidationError
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles/:slug/comments" ] => [ request: ?req ]
+    Comment/create: [] => [ error: ?error ]
+}
+then {
+    Web/respondValidationError: [
+        request: ?req ;
+        errors: { "body": [?error] } ]
+}
+
+sync RetrieveArticleForListComments
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/:slug/comments" ; params: ?params ] => [ request: ?req ]
+}
+where {
+    bind ( ?params["slug"] as ?slug )
+}
+then {
+    Article/getBySlug: [ slug: ?slug ]
+}
+
+sync ListComments
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/:slug/comments" ] => [ request: ?req ]
+    Article/getBySlug: [] => [ article: ?articleId ]
+}
+then {
+    Comment/list: [ article: ?articleId ]
+}
+
+sync HandleListCommentsArticleNotFound
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/:slug/comments" ] => [ request: ?req ]
+    Article/getBySlug: [] => [ error: ?error ]
+}
+then {
+    Web/respondError: [
+        request: ?req ;
+        status: 404 ;
+        error: "article not found" ]
+}
+
+sync RespondListCommentsUnauthenticated
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/:slug/comments" ] => [ request: ?req ]
+    Comment/list: [] => [ comments: ?comments ]
+}
+where {
+    bind ( ?comment in ?comments )
+    Comment: { ?comment id: ?id ; body: ?bodyText ; author: ?authorId ; createdAt: ?createdAt ; updatedAt: ?updatedAt }
+    User: { ?authorId username: ?username ; bio: ?bio ; image: ?image }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 200 ;
+        body: {
+            "comments": [
+                {
+                    "id": ?id,
+                    "body": ?bodyText,
+                    "createdAt": ?createdAt,
+                    "updatedAt": ?updatedAt,
+                    "author": {
+                        "username": ?username,
+                        "bio": ?bio,
+                        "image": ?image,
+                        "following": false
+                    }
+                }
+            ]
+        } ]
+}
+
+sync EnrichCommentListFollowing
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/:slug/comments" ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?viewerId ]
+    Comment/list: [] => [ comments: ?comments ]
+}
+where {
+    bind ( ?comment in ?comments )
+    Comment: { ?comment author: ?authorId }
+}
+then {
+    Following/isFollowing: [ follower: ?viewerId ; target: ?authorId ]
+}
+
+sync RespondListCommentsAuthenticated
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/:slug/comments" ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?viewerId ]
+    Comment/list: [] => [ comments: ?comments ]
+}
+where {
+    bind ( ?comment in ?comments )
+    Comment: { ?comment id: ?id ; body: ?bodyText ; author: ?authorId ; createdAt: ?createdAt ; updatedAt: ?updatedAt }
+    User: { ?authorId username: ?username ; bio: ?bio ; image: ?image }
+    Following: { ?viewerId target: ?authorId following: ?following }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 200 ;
+        body: {
+            "comments": [
+                {
+                    "id": ?id,
+                    "body": ?bodyText,
+                    "createdAt": ?createdAt,
+                    "updatedAt": ?updatedAt,
+                    "author": {
+                        "username": ?username,
+                        "bio": ?bio,
+                        "image": ?image,
+                        "following": ?following
+                    }
+                }
+            ]
+        } ]
+}
+
+sync AuthenticateDeleteComment
+when {
+    Web/request: [ method: "DELETE" ; path: "/api/articles/:slug/comments/:id" ] => [ request: ?req ]
+}
+then {
+    Web/getAuthToken: [ request: ?req ]
+}
+
+sync VerifyDeleteCommentToken
+when {
+    Web/request: [ method: "DELETE" ; path: "/api/articles/:slug/comments/:id" ] => [ request: ?req ]
+    Web/getAuthToken: [ request: ?req ] => [ token: ?token ]
+}
+then {
+    JWT/verify: [ token: ?token ]
+}
+
+sync RetrieveCommentForDelete
+when {
+    Web/request: [ method: "DELETE" ; path: "/api/articles/:slug/comments/:id" ; params: ?params ] => [ request: ?req ]
+}
+where {
+    bind ( ?params["id"] as ?id )
+}
+then {
+    Comment/getById: [ id: ?id ]
+}
+
+sync VerifyDeleteCommentOwnership
+when {
+    Web/request: [ method: "DELETE" ; path: "/api/articles/:slug/comments/:id" ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?userId ]
+    Comment/getById: [] => [ comment: ?commentId ]
+}
+where {
+    Comment: { ?commentId author: ?authorId }
+    FILTER ( ?userId = ?authorId )
+}
+then {
+    Comment/delete: [ comment: ?commentId ]
+}
+
+sync RespondDeleteCommentSuccess
+when {
+    Web/request: [ method: "DELETE" ; path: "/api/articles/:slug/comments/:id" ] => [ request: ?req ]
+    Comment/delete: [] => [ comment: ?commentId ]
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 204 ;
+        body: {} ]
+}
+
+sync HandleDeleteCommentNotFound
+when {
+    Web/request: [ method: "DELETE" ; path: "/api/articles/:slug/comments/:id" ] => [ request: ?req ]
+    Comment/getById: [] => [ error: ?error ]
+}
+then {
+    Web/respondError: [
+        request: ?req ;
+        status: 404 ;
+        error: "comment not found" ]
+}
+
+sync HandleDeleteCommentForbidden
+when {
+    Web/request: [ method: "DELETE" ; path: "/api/articles/:slug/comments/:id" ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?userId ]
+    Comment/getById: [] => [ comment: ?commentId ]
+}
+where {
+    Comment: { ?commentId author: ?authorId }
+    FILTER ( ?userId != ?authorId )
+}
+then {
+    Web/respondError: [
+        request: ?req ;
+        status: 403 ;
+        error: "forbidden" ]
+}

@@ -1,0 +1,61 @@
+concept Article [A, U]
+purpose
+    to manage blog articles with metadata, authorship, and slug-based identification
+state
+    articles: set A
+    slug: A -> string          # Unique URL-friendly identifier
+    title: A -> string
+    description: A -> string
+    body: A -> string
+    author: A -> U             # Article author
+    createdAt: A -> datetime
+    updatedAt: A -> datetime
+actions
+    create [ article: A ; slug: string ; title: string ; description: string ; body: string ; author: U ] => [ article: A ]
+        # Success case: creates new article
+
+    create [ article: A ; slug: string ; title: string ; description: string ; body: string ; author: U ] => [ error: string ]
+        # Error case: validation failed (title min length, required fields)
+
+    getBySlug [ slug: string ] => [ article: A ; title: string ; description: string ; body: string ; author: U ; createdAt: datetime ; updatedAt: datetime ]
+        # Success case: retrieves article by slug
+
+    getBySlug [ slug: string ] => [ error: string ]
+        # Error case: article not found
+
+    update [ article: A ; title: string ; description: string ; body: string ] => [ article: A ]
+        # Success case: updates article fields
+
+    update [ article: A ; title: string ; description: string ; body: string ] => [ error: string ]
+        # Error case: validation failed
+
+    delete [ article: A ] => [ article: A ]
+        # Success case: deletes article
+
+    delete [ article: A ] => [ error: string ]
+        # Error case: article not found
+
+    list [ limit: int ; offset: int ] => [ articles: set A ; count: int ]
+        # Lists all articles with pagination
+
+    listByAuthor [ author: U ; limit: int ; offset: int ] => [ articles: set A ; count: int ]
+        # Lists articles by specific author
+
+    listByTag [ tag: string ; limit: int ; offset: int ] => [ articles: set A ; count: int ]
+        # Lists articles with specific tag
+
+    feed [ user: U ; limit: int ; offset: int ] => [ articles: set A ; count: int ]
+        # Lists articles from followed users
+
+    getAuthor [ article: A ] => [ author: U ]
+        # Returns the author of an article
+
+    exists [ article: A ] => [ exists: boolean ]
+        # Checks if article exists
+operational principle
+    after create [ article: a1 ; slug: "test-article" ; title: "Test" ; description: "Desc" ; body: "Body" ; author: u1 ]
+        => [ article: a1 ]
+    then getBySlug [ slug: "test-article" ] => [ article: a1 ; title: "Test" ; ... ]
+    and after update [ article: a1 ; title: "Updated" ; description: "Desc" ; body: "Body" ]
+        => [ article: a1 ]
+    then getBySlug [ slug: "test-article" ] => [ article: a1 ; title: "Updated" ; ... ]

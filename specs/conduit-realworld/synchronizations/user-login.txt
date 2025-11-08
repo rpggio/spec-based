@@ -1,0 +1,81 @@
+# User Login Synchronizations
+
+sync AuthenticateUser
+when {
+    Web/request: [ method: "POST" ; path: "/api/users/login" ; body: ?body ] => [ request: ?req ]
+}
+where {
+    bind ( ?body["user"]["email"] as ?email )
+}
+then {
+    User/getByEmail: [ email: ?email ]
+}
+
+sync VerifyPassword
+when {
+    Web/request: [ method: "POST" ; path: "/api/users/login" ; body: ?body ] => [ request: ?req ]
+    User/getByEmail: [] => [ user: ?userId ]
+}
+where {
+    bind ( ?body["user"]["password"] as ?password )
+}
+then {
+    Password/check: [ user: ?userId ; password: ?password ]
+}
+
+sync GenerateLoginToken
+when {
+    User/getByEmail: [] => [ user: ?userId ]
+    Password/check: [ user: ?userId ] => [ valid: true ]
+}
+then {
+    JWT/generate: [ user: ?userId ]
+}
+
+sync RespondLoginSuccess
+when {
+    Web/request: [ method: "POST" ; path: "/api/users/login" ] => [ request: ?req ]
+    User/getByEmail: [] => [ user: ?userId ]
+    Password/check: [] => [ valid: true ]
+    JWT/generate: [ user: ?userId ] => [ token: ?token ]
+}
+where {
+    User: { ?userId email: ?email ; username: ?username ; bio: ?bio ; image: ?image }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 200 ;
+        body: {
+            "user": {
+                "email": ?email,
+                "username": ?username,
+                "bio": ?bio,
+                "image": ?image,
+                "token": ?token
+            }
+        } ]
+}
+
+sync HandleLoginUserNotFound
+when {
+    Web/request: [ method: "POST" ; path: "/api/users/login" ] => [ request: ?req ]
+    User/getByEmail: [] => [ error: ?error ]
+}
+then {
+    Web/respondValidationError: [
+        request: ?req ;
+        errors: { "body": ["user not found"] } ]
+}
+
+sync HandleLoginInvalidPassword
+when {
+    Web/request: [ method: "POST" ; path: "/api/users/login" ] => [ request: ?req ]
+    Password/check: [] => [ valid: false ]
+}
+then {
+    Web/respondError: [
+        request: ?req ;
+        status: 400 ;
+        error: "invalid credentials" ]
+}

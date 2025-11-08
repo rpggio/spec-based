@@ -1,0 +1,42 @@
+concept User [U]
+purpose
+    to manage user accounts with unique identities and profile information
+state
+    users: set U
+    email: U -> string
+    username: U -> string
+    bio: U -> string
+    image: U -> string
+actions
+    register [ user: U ; email: string ; username: string ] => [ user: U ]
+        # Success case: creates new user account
+
+    register [ user: U ; email: string ; username: string ] => [ error: string ]
+        # Error case: validation failed (email format, username length)
+
+    update [ user: U ; email: string ; bio: string ; image: string ] => [ user: U ]
+        # Success case: updates user profile information
+
+    update [ user: U ; email: string ; bio: string ; image: string ] => [ error: string ]
+        # Error case: validation failed
+
+    getByEmail [ email: string ] => [ user: U ]
+        # Success case: finds user by email
+
+    getByEmail [ email: string ] => [ error: string ]
+        # Error case: user not found
+
+    getByUsername [ username: string ] => [ user: U ]
+        # Success case: finds user by username
+
+    getByUsername [ username: string ] => [ error: string ]
+        # Error case: user not found
+
+    exists [ user: U ] => [ exists: boolean ]
+        # Checks if user exists in system
+operational principle
+    after register [ user: u1 ; email: "test@example.com" ; username: "testuser" ]
+        => [ user: u1 ]
+    then getByEmail [ email: "test@example.com" ] => [ user: u1 ]
+    and getByUsername [ username: "testuser" ] => [ user: u1 ]
+    and exists [ user: u1 ] => [ exists: true ]

@@ -1,0 +1,25 @@
+concept JWT [U]
+purpose
+    to generate and verify authentication tokens for users
+state
+    tokens: U -> string         # Maps user to current valid token
+    issued: U -> datetime      # Token issue timestamp
+actions
+    generate [ user: U ] => [ token: string ]
+        # Generates a new JWT token for the user
+
+    verify [ token: string ] => [ user: U ]
+        # Success case: token is valid, returns associated user
+
+    verify [ token: string ] => [ error: string ]
+        # Error case: token is invalid, expired, or malformed
+
+    getToken [ user: U ] => [ token: string ]
+        # Retrieves current token for user
+
+    getToken [ user: U ] => [ error: string ]
+        # Error case: no token exists for user
+operational principle
+    after generate [ user: u1 ] => [ token: t1 ]
+    then verify [ token: t1 ] => [ user: u1 ]
+    and getToken [ user: u1 ] => [ token: t1 ]
