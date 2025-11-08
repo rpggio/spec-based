@@ -1,0 +1,113 @@
+# Article Creation Synchronizations
+
+sync AuthenticateCreateArticle
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles" ] => [ request: ?req ]
+}
+then {
+    Web/getAuthToken: [ request: ?req ]
+}
+
+sync VerifyCreateArticleToken
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles" ] => [ request: ?req ]
+    Web/getAuthToken: [ request: ?req ] => [ token: ?token ]
+}
+then {
+    JWT/verify: [ token: ?token ]
+}
+
+sync CreateArticle
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles" ; body: ?body ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?authorId ]
+}
+where {
+    bind ( uuid() as ?articleId )
+    bind ( ?body["article"]["title"] as ?title )
+    bind ( ?body["article"]["description"] as ?description )
+    bind ( ?body["article"]["body"] as ?bodyText )
+    bind ( slugify(?title) as ?slug )
+}
+then {
+    Article/create: [
+        article: ?articleId ;
+        slug: ?slug ;
+        title: ?title ;
+        description: ?description ;
+        body: ?bodyText ;
+        author: ?authorId ]
+}
+
+sync AddArticleTags
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles" ; body: ?body ] => [ request: ?req ]
+    Article/create: [] => [ article: ?articleId ]
+}
+where {
+    bind ( ?body["article"]["tagList"] as ?tags )
+    FILTER ( ?tags != null && length(?tags) > 0 )
+    bind ( ?tagName in ?tags )
+}
+then {
+    Tag/add: [ article: ?articleId ; tag: ?tagName ]
+}
+
+sync RespondCreateArticleSuccess
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles" ] => [ request: ?req ]
+    Article/create: [] => [ article: ?articleId ]
+    JWT/verify: [] => [ user: ?authorId ]
+}
+where {
+    Article: { ?articleId slug: ?slug ; title: ?title ; description: ?description ; body: ?bodyText ; createdAt: ?createdAt ; updatedAt: ?updatedAt }
+    User: { ?authorId username: ?username ; bio: ?bio ; image: ?image }
+    Tag: { ?articleId tagList: ?tagList }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 201 ;
+        body: {
+            "article": {
+                "slug": ?slug,
+                "title": ?title,
+                "description": ?description,
+                "body": ?bodyText,
+                "tagList": ?tagList,
+                "createdAt": ?createdAt,
+                "updatedAt": ?updatedAt,
+                "favorited": false,
+                "favoritesCount": 0,
+                "author": {
+                    "username": ?username,
+                    "bio": ?bio,
+                    "image": ?image,
+                    "following": false
+                }
+            }
+        } ]
+}
+
+sync HandleCreateArticleValidationError
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles" ] => [ request: ?req ]
+    Article/create: [] => [ error: ?error ]
+}
+then {
+    Web/respondValidationError: [
+        request: ?req ;
+        errors: { "body": [?error] } ]
+}
+
+sync HandleCreateArticleAuthError
+when {
+    Web/request: [ method: "POST" ; path: "/api/articles" ] => [ request: ?req ]
+    JWT/verify: [] => [ error: ?error ]
+}
+then {
+    Web/respondError: [
+        request: ?req ;
+        status: 401 ;
+        error: "unauthorized" ]
+}

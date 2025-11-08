@@ -1,0 +1,37 @@
+concept Favorite [A, U]
+purpose
+    to allow users to mark articles as favorites and track favorite counts
+state
+    favorites: A -> set U      # Maps article to users who favorited it
+    count: A -> int           # Favorite count per article
+actions
+    add [ article: A ; user: U ] => [ article: A ]
+        # Success case: adds article to user's favorites
+
+    add [ article: A ; user: U ] => [ error: string ]
+        # Error case: article doesn't exist or already favorited
+
+    remove [ article: A ; user: U ] => [ article: A ]
+        # Success case: removes article from user's favorites
+
+    remove [ article: A ; user: U ] => [ error: string ]
+        # Error case: article doesn't exist or not favorited
+
+    isFavorited [ article: A ; user: U ] => [ favorited: boolean ]
+        # Checks if user has favorited article
+
+    getCount [ article: A ] => [ count: int ]
+        # Returns favorite count for article
+
+    getFavorites [ user: U ] => [ articles: set A ]
+        # Returns all articles favorited by user
+
+    listByFavoriter [ username: string ; limit: int ; offset: int ] => [ articles: set A ; count: int ]
+        # Lists articles favorited by specific user
+operational principle
+    after add [ article: a1 ; user: u1 ] => [ article: a1 ]
+    then isFavorited [ article: a1 ; user: u1 ] => [ favorited: true ]
+    and getCount [ article: a1 ] => [ count: 1 ]
+    and after remove [ article: a1 ; user: u1 ] => [ article: a1 ]
+    then isFavorited [ article: a1 ; user: u1 ] => [ favorited: false ]
+    and getCount [ article: a1 ] => [ count: 0 ]

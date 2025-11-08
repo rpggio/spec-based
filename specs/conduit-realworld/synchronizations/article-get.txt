@@ -1,0 +1,120 @@
+# Get Single Article Synchronizations
+
+sync GetArticleBySlug
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/:slug" ; params: ?params ] => [ request: ?req ]
+}
+where {
+    bind ( ?params["slug"] as ?slug )
+}
+then {
+    Article/getBySlug: [ slug: ?slug ]
+}
+
+sync RespondGetArticleUnauthenticated
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    Article/getBySlug: [] => [ article: ?articleId ; author: ?authorId ]
+}
+where {
+    Article: { ?articleId slug: ?slug ; title: ?title ; description: ?description ; body: ?bodyText ; createdAt: ?createdAt ; updatedAt: ?updatedAt }
+    User: { ?authorId username: ?username ; bio: ?bio ; image: ?image }
+    Tag: { ?articleId tagList: ?tagList }
+    Favorite: { ?articleId count: ?favoritesCount }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 200 ;
+        body: {
+            "article": {
+                "slug": ?slug,
+                "title": ?title,
+                "description": ?description,
+                "body": ?bodyText,
+                "tagList": ?tagList,
+                "createdAt": ?createdAt,
+                "updatedAt": ?updatedAt,
+                "favorited": false,
+                "favoritesCount": ?favoritesCount,
+                "author": {
+                    "username": ?username,
+                    "bio": ?bio,
+                    "image": ?image,
+                    "following": false
+                }
+            }
+        } ]
+}
+
+sync GetArticleAuthenticated
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    Web/getAuthToken: [ request: ?req ] => [ token: ?token ]
+    JWT/verify: [ token: ?token ] => [ user: ?viewerId ]
+    Article/getBySlug: [] => [ article: ?articleId ; author: ?authorId ]
+}
+then {
+    Favorite/isFavorited: [ article: ?articleId ; user: ?viewerId ]
+}
+
+sync CheckArticleAuthorFollowing
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?viewerId ]
+    Article/getBySlug: [] => [ article: ?articleId ; author: ?authorId ]
+}
+then {
+    Following/isFollowing: [ follower: ?viewerId ; target: ?authorId ]
+}
+
+sync RespondGetArticleAuthenticated
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    Article/getBySlug: [] => [ article: ?articleId ; author: ?authorId ]
+    JWT/verify: [] => [ user: ?viewerId ]
+    Favorite/isFavorited: [ article: ?articleId ; user: ?viewerId ] => [ favorited: ?favorited ]
+    Following/isFollowing: [ follower: ?viewerId ; target: ?authorId ] => [ following: ?following ]
+}
+where {
+    Article: { ?articleId slug: ?slug ; title: ?title ; description: ?description ; body: ?bodyText ; createdAt: ?createdAt ; updatedAt: ?updatedAt }
+    User: { ?authorId username: ?username ; bio: ?bio ; image: ?image }
+    Tag: { ?articleId tagList: ?tagList }
+    Favorite: { ?articleId count: ?favoritesCount }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 200 ;
+        body: {
+            "article": {
+                "slug": ?slug,
+                "title": ?title,
+                "description": ?description,
+                "body": ?bodyText,
+                "tagList": ?tagList,
+                "createdAt": ?createdAt,
+                "updatedAt": ?updatedAt,
+                "favorited": ?favorited,
+                "favoritesCount": ?favoritesCount,
+                "author": {
+                    "username": ?username,
+                    "bio": ?bio,
+                    "image": ?image,
+                    "following": ?following
+                }
+            }
+        } ]
+}
+
+sync HandleArticleNotFound
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    Article/getBySlug: [] => [ error: ?error ]
+}
+then {
+    Web/respondError: [
+        request: ?req ;
+        status: 404 ;
+        error: "article not found" ]
+}

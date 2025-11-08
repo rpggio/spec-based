@@ -1,0 +1,37 @@
+concept Tag [A, T]
+purpose
+    to categorize articles with tags and retrieve all available tags
+state
+    tags: set T                # All unique tags
+    name: T -> string          # Tag name
+    articles: T -> set A       # Articles tagged with this tag
+    articleTags: A -> set T    # Tags for each article
+actions
+    add [ article: A ; tag: string ] => [ tag: T ]
+        # Adds tag to article, creates tag if doesn't exist
+
+    add [ article: A ; tag: string ] => [ error: string ]
+        # Error case: article doesn't exist or invalid tag
+
+    remove [ article: A ; tag: T ] => [ tag: T ]
+        # Removes tag from article
+
+    remove [ article: A ; tag: T ] => [ error: string ]
+        # Error case: article or tag doesn't exist
+
+    getTags [ article: A ] => [ tags: set T ]
+        # Returns all tags for an article
+
+    getTagNames [ article: A ] => [ tagList: list string ]
+        # Returns tag names as list
+
+    list [] => [ tags: list string ]
+        # Returns all unique tag names
+
+    getArticles [ tag: string ] => [ articles: set A ]
+        # Returns all articles with given tag
+operational principle
+    after add [ article: a1 ; tag: "testing" ] => [ tag: t1 ]
+    and add [ article: a2 ; tag: "testing" ] => [ tag: t1 ]
+    then list [] => [ tags: ["testing"] ]
+    and getArticles [ tag: "testing" ] => [ articles: {a1, a2} ]

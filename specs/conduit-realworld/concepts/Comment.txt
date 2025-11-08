@@ -1,0 +1,42 @@
+concept Comment [C, A, U]
+purpose
+    to allow users to add and manage comments on articles
+state
+    comments: set C
+    id: C -> int
+    body: C -> string
+    article: C -> A            # Article being commented on
+    author: C -> U             # Comment author
+    createdAt: C -> datetime
+    updatedAt: C -> datetime
+actions
+    create [ comment: C ; id: int ; body: string ; article: A ; author: U ] => [ comment: C ]
+        # Success case: creates new comment
+
+    create [ comment: C ; id: int ; body: string ; article: A ; author: U ] => [ error: string ]
+        # Error case: validation failed (body required) or article doesn't exist
+
+    delete [ comment: C ] => [ comment: C ]
+        # Success case: deletes comment
+
+    delete [ comment: C ] => [ error: string ]
+        # Error case: comment not found
+
+    list [ article: A ] => [ comments: set C ]
+        # Returns all comments for an article
+
+    getById [ id: int ] => [ comment: C ]
+        # Success case: finds comment by ID
+
+    getById [ id: int ] => [ error: string ]
+        # Error case: comment not found
+
+    getAuthor [ comment: C ] => [ author: U ]
+        # Returns the author of a comment
+operational principle
+    after create [ comment: c1 ; id: 1 ; body: "Great article!" ; article: a1 ; author: u1 ]
+        => [ comment: c1 ]
+    then list [ article: a1 ] => [ comments: {c1} ]
+    and getById [ id: 1 ] => [ comment: c1 ]
+    and after delete [ comment: c1 ] => [ comment: c1 ]
+    then list [ article: a1 ] => [ comments: {} ]

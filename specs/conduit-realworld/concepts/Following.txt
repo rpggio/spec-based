@@ -1,0 +1,33 @@
+concept Following [U]
+purpose
+    to allow users to follow and unfollow other users
+state
+    following: U -> set U       # Maps user to set of users they follow
+    followers: U -> set U       # Maps user to set of their followers
+    count: U -> int            # Number of followers for each user
+actions
+    follow [ follower: U ; target: U ] => [ follower: U ; target: U ]
+        # Success case: creates follow relationship
+
+    follow [ follower: U ; target: U ] => [ error: string ]
+        # Error case: target user doesn't exist or already following
+
+    unfollow [ follower: U ; target: U ] => [ follower: U ; target: U ]
+        # Success case: removes follow relationship
+
+    unfollow [ follower: U ; target: U ] => [ error: string ]
+        # Error case: target user doesn't exist or not following
+
+    isFollowing [ follower: U ; target: U ] => [ following: boolean ]
+        # Checks if follower follows target
+
+    getFollowing [ user: U ] => [ following: set U ]
+        # Returns set of users that user follows
+
+    getFollowers [ user: U ] => [ followers: set U ]
+        # Returns set of users following this user
+operational principle
+    after follow [ follower: u1 ; target: u2 ] => [ follower: u1 ; target: u2 ]
+    then isFollowing [ follower: u1 ; target: u2 ] => [ following: true ]
+    and after unfollow [ follower: u1 ; target: u2 ] => [ follower: u1 ; target: u2 ]
+    then isFollowing [ follower: u1 ; target: u2 ] => [ following: false ]

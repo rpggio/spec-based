@@ -1,0 +1,20 @@
+concept Profile [U]
+purpose
+    to provide public profile views of users with social relationship status
+state
+    profiles: set U             # Users with viewable profiles
+actions
+    get [ username: string ] => [ user: U ; username: string ; bio: string ; image: string ]
+        # Success case: returns profile information for user
+
+    get [ username: string ] => [ error: string ]
+        # Error case: user not found
+
+    view [ viewer: U ; username: string ] => [ user: U ; username: string ; bio: string ; image: string ; following: boolean ]
+        # Returns profile with following status from viewer's perspective
+
+    view [ viewer: U ; username: string ] => [ error: string ]
+        # Error case: user not found
+operational principle
+    after get [ username: "alice" ] => [ user: u1 ; username: "alice" ; bio: "" ; image: "" ]
+    then view [ viewer: u2 ; username: "alice" ] => [ user: u1 ; username: "alice" ; bio: "" ; image: "" ; following: false ]

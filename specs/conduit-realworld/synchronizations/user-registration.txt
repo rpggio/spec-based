@@ -1,0 +1,104 @@
+# User Registration Synchronizations
+
+sync ValidateRegistrationPassword
+when {
+    Web/request: [ method: "POST" ; path: "/api/users" ; body: ?body ] => [ request: ?req ]
+}
+where {
+    bind ( ?body["user"]["password"] as ?password )
+}
+then {
+    Password/validate: [ password: ?password ]
+}
+
+sync RegisterUser
+when {
+    Web/request: [ method: "POST" ; path: "/api/users" ; body: ?body ] => [ request: ?req ]
+    Password/validate: [] => [ valid: true ]
+}
+where {
+    bind ( uuid() as ?userId )
+    bind ( ?body["user"]["email"] as ?email )
+    bind ( ?body["user"]["username"] as ?username )
+}
+then {
+    User/register: [ user: ?userId ; email: ?email ; username: ?username ]
+}
+
+sync SetUserPassword
+when {
+    Web/request: [ method: "POST" ; path: "/api/users" ; body: ?body ] => [ request: ?req ]
+    User/register: [] => [ user: ?userId ]
+}
+where {
+    bind ( ?body["user"]["password"] as ?password )
+}
+then {
+    Password/set: [ user: ?userId ; password: ?password ]
+}
+
+sync GenerateRegistrationToken
+when {
+    User/register: [] => [ user: ?userId ]
+    Password/set: [ user: ?userId ] => []
+}
+then {
+    JWT/generate: [ user: ?userId ]
+}
+
+sync RespondRegistrationSuccess
+when {
+    Web/request: [ method: "POST" ; path: "/api/users" ] => [ request: ?req ]
+    User/register: [] => [ user: ?userId ]
+    JWT/generate: [ user: ?userId ] => [ token: ?token ]
+}
+where {
+    User: { ?userId email: ?email ; username: ?username ; bio: ?bio ; image: ?image }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 201 ;
+        body: {
+            "user": {
+                "email": ?email,
+                "username": ?username,
+                "bio": ?bio,
+                "image": ?image,
+                "token": ?token
+            }
+        } ]
+}
+
+sync HandleRegistrationValidationError
+when {
+    Web/request: [ method: "POST" ; path: "/api/users" ] => [ request: ?req ]
+    User/register: [] => [ error: ?error ]
+}
+then {
+    Web/respondValidationError: [
+        request: ?req ;
+        errors: { "body": [?error] } ]
+}
+
+sync HandlePasswordValidationError
+when {
+    Web/request: [ method: "POST" ; path: "/api/users" ] => [ request: ?req ]
+    Password/validate: [] => [ valid: false ]
+}
+then {
+    Web/respondValidationError: [
+        request: ?req ;
+        errors: { "body": ["password must meet minimum requirements"] } ]
+}
+
+sync HandlePasswordSetError
+when {
+    Web/request: [ method: "POST" ; path: "/api/users" ] => [ request: ?req ]
+    Password/set: [] => [ error: ?error ]
+}
+then {
+    Web/respondValidationError: [
+        request: ?req ;
+        errors: { "body": [?error] } ]
+}

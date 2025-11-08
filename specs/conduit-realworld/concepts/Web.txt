@@ -1,0 +1,34 @@
+concept Web [R]
+purpose
+    to handle HTTP requests and send responses to clients
+state
+    requests: set R            # Active requests
+    method: R -> string        # HTTP method
+    path: R -> string          # Request path
+    headers: R -> map          # Request headers
+    body: R -> map             # Request body
+    params: R -> map           # URL parameters
+    query: R -> map            # Query parameters
+actions
+    request [ request: R ; method: string ; path: string ; headers: map ; body: map ; params: map ; query: map ] => [ request: R ]
+        # Receives and registers an HTTP request
+
+    respond [ request: R ; status: int ; body: map ] => [ request: R ]
+        # Sends successful response to request
+
+    respondError [ request: R ; status: int ; error: string ] => [ request: R ]
+        # Sends error response to request
+
+    respondValidationError [ request: R ; errors: map ] => [ request: R ]
+        # Sends 422 validation error with error details
+
+    getAuthToken [ request: R ] => [ token: string ]
+        # Extracts bearer token from Authorization header
+
+    getAuthToken [ request: R ] => [ error: string ]
+        # Error case: no token present
+operational principle
+    after request [ request: r1 ; method: "POST" ; path: "/api/users" ; ... ]
+        => [ request: r1 ]
+    then respond [ request: r1 ; status: 201 ; body: {...} ]
+        => [ request: r1 ]

@@ -1,0 +1,168 @@
+# Article Listing Synchronizations
+
+sync ListAllArticles
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles" ; query: ?query ] => [ request: ?req ]
+}
+where {
+    bind ( ?query["limit"] ?? 20 as ?limit )
+    bind ( ?query["offset"] ?? 0 as ?offset )
+    FILTER ( ?query["tag"] = null && ?query["author"] = null && ?query["favorited"] = null )
+}
+then {
+    Article/list: [ limit: ?limit ; offset: ?offset ]
+}
+
+sync ListArticlesByTag
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles" ; query: ?query ] => [ request: ?req ]
+}
+where {
+    bind ( ?query["tag"] as ?tag )
+    bind ( ?query["limit"] ?? 20 as ?limit )
+    bind ( ?query["offset"] ?? 0 as ?offset )
+    FILTER ( ?tag != null )
+}
+then {
+    Article/listByTag: [ tag: ?tag ; limit: ?limit ; offset: ?offset ]
+}
+
+sync ListArticlesByAuthor
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles" ; query: ?query ] => [ request: ?req ]
+}
+where {
+    bind ( ?query["author"] as ?authorName )
+    bind ( ?query["limit"] ?? 20 as ?limit )
+    bind ( ?query["offset"] ?? 0 as ?offset )
+    FILTER ( ?authorName != null )
+    User: { ?authorId username: ?authorName }
+}
+then {
+    Article/listByAuthor: [ author: ?authorId ; limit: ?limit ; offset: ?offset ]
+}
+
+sync ListArticlesByFavoriter
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles" ; query: ?query ] => [ request: ?req ]
+}
+where {
+    bind ( ?query["favorited"] as ?favoriterName )
+    bind ( ?query["limit"] ?? 20 as ?limit )
+    bind ( ?query["offset"] ?? 0 as ?offset )
+    FILTER ( ?favoriterName != null )
+}
+then {
+    Favorite/listByFavoriter: [ username: ?favoriterName ; limit: ?limit ; offset: ?offset ]
+}
+
+sync RespondArticleListUnauthenticated
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles" ] => [ request: ?req ]
+    Article/list: [] => [ articles: ?articles ; count: ?count ]
+}
+where {
+    bind ( ?article in ?articles )
+    Article: { ?article slug: ?slug ; title: ?title ; description: ?description ; body: ?bodyText ; author: ?authorId ; createdAt: ?createdAt ; updatedAt: ?updatedAt }
+    User: { ?authorId username: ?username ; bio: ?bio ; image: ?image }
+    Tag: { ?article tagList: ?tagList }
+    Favorite: { ?article count: ?favoritesCount }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 200 ;
+        body: {
+            "articles": [
+                {
+                    "slug": ?slug,
+                    "title": ?title,
+                    "description": ?description,
+                    "body": ?bodyText,
+                    "tagList": ?tagList,
+                    "createdAt": ?createdAt,
+                    "updatedAt": ?updatedAt,
+                    "favorited": false,
+                    "favoritesCount": ?favoritesCount,
+                    "author": {
+                        "username": ?username,
+                        "bio": ?bio,
+                        "image": ?image,
+                        "following": false
+                    }
+                }
+            ],
+            "articlesCount": ?count
+        } ]
+}
+
+sync EnrichArticleListAuthenticated
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles" ] => [ request: ?req ]
+    Web/getAuthToken: [ request: ?req ] => [ token: ?token ]
+    JWT/verify: [ token: ?token ] => [ user: ?viewerId ]
+    Article/list: [] => [ articles: ?articles ]
+}
+where {
+    bind ( ?article in ?articles )
+}
+then {
+    Favorite/isFavorited: [ article: ?article ; user: ?viewerId ]
+}
+
+sync EnrichArticleListFollowing
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles" ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?viewerId ]
+    Article/list: [] => [ articles: ?articles ]
+}
+where {
+    bind ( ?article in ?articles )
+    Article: { ?article author: ?authorId }
+}
+then {
+    Following/isFollowing: [ follower: ?viewerId ; target: ?authorId ]
+}
+
+sync RespondArticleListAuthenticated
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles" ] => [ request: ?req ]
+    Article/list: [] => [ articles: ?articles ; count: ?count ]
+    JWT/verify: [] => [ user: ?viewerId ]
+    Favorite/isFavorited: [] => [ favorited: ?favorited ]
+    Following/isFollowing: [] => [ following: ?following ]
+}
+where {
+    bind ( ?article in ?articles )
+    Article: { ?article slug: ?slug ; title: ?title ; description: ?description ; body: ?bodyText ; author: ?authorId ; createdAt: ?createdAt ; updatedAt: ?updatedAt }
+    User: { ?authorId username: ?username ; bio: ?bio ; image: ?image }
+    Tag: { ?article tagList: ?tagList }
+    Favorite: { ?article count: ?favoritesCount }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 200 ;
+        body: {
+            "articles": [
+                {
+                    "slug": ?slug,
+                    "title": ?title,
+                    "description": ?description,
+                    "body": ?bodyText,
+                    "tagList": ?tagList,
+                    "createdAt": ?createdAt,
+                    "updatedAt": ?updatedAt,
+                    "favorited": ?favorited,
+                    "favoritesCount": ?favoritesCount,
+                    "author": {
+                        "username": ?username,
+                        "bio": ?bio,
+                        "image": ?image,
+                        "following": ?following
+                    }
+                }
+            ],
+            "articlesCount": ?count
+        } ]
+}

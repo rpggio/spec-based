@@ -1,0 +1,165 @@
+# Article Update Synchronizations
+
+sync AuthenticateUpdateArticle
+when {
+    Web/request: [ method: "PUT" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+}
+then {
+    Web/getAuthToken: [ request: ?req ]
+}
+
+sync VerifyUpdateArticleToken
+when {
+    Web/request: [ method: "PUT" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    Web/getAuthToken: [ request: ?req ] => [ token: ?token ]
+}
+then {
+    JWT/verify: [ token: ?token ]
+}
+
+sync RetrieveArticleForUpdate
+when {
+    Web/request: [ method: "PUT" ; path: "/api/articles/:slug" ; params: ?params ] => [ request: ?req ]
+}
+where {
+    bind ( ?params["slug"] as ?slug )
+}
+then {
+    Article/getBySlug: [ slug: ?slug ]
+}
+
+sync VerifyArticleOwnership
+when {
+    Web/request: [ method: "PUT" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?userId ]
+    Article/getBySlug: [] => [ article: ?articleId ]
+}
+where {
+    Article: { ?articleId author: ?authorId }
+    FILTER ( ?userId = ?authorId )
+}
+then {
+    # Ownership verified, proceed with update
+}
+
+sync UpdateArticleContent
+when {
+    Web/request: [ method: "PUT" ; path: "/api/articles/:slug" ; body: ?body ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?userId ]
+    Article/getBySlug: [] => [ article: ?articleId ; author: ?authorId ]
+}
+where {
+    FILTER ( ?userId = ?authorId )
+    bind ( ?body["article"]["title"] as ?title )
+    bind ( ?body["article"]["description"] as ?description )
+    bind ( ?body["article"]["body"] as ?bodyText )
+}
+then {
+    Article/update: [
+        article: ?articleId ;
+        title: ?title ;
+        description: ?description ;
+        body: ?bodyText ]
+}
+
+sync CheckUpdateArticleFavorited
+when {
+    Web/request: [ method: "PUT" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    Article/update: [] => [ article: ?articleId ]
+    JWT/verify: [] => [ user: ?userId ]
+}
+then {
+    Favorite/isFavorited: [ article: ?articleId ; user: ?userId ]
+}
+
+sync CheckUpdateArticleFollowing
+when {
+    Web/request: [ method: "PUT" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    Article/update: [] => [ article: ?articleId ]
+    JWT/verify: [] => [ user: ?userId ]
+}
+where {
+    Article: { ?articleId author: ?authorId }
+}
+then {
+    Following/isFollowing: [ follower: ?userId ; target: ?authorId ]
+}
+
+sync RespondUpdateArticleSuccess
+when {
+    Web/request: [ method: "PUT" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    Article/update: [] => [ article: ?articleId ]
+    JWT/verify: [] => [ user: ?userId ]
+    Favorite/isFavorited: [] => [ favorited: ?favorited ]
+    Following/isFollowing: [] => [ following: ?following ]
+}
+where {
+    Article: { ?articleId slug: ?slug ; title: ?title ; description: ?description ; body: ?bodyText ; author: ?authorId ; createdAt: ?createdAt ; updatedAt: ?updatedAt }
+    User: { ?authorId username: ?username ; bio: ?bio ; image: ?image }
+    Tag: { ?articleId tagList: ?tagList }
+    Favorite: { ?articleId count: ?favoritesCount }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 200 ;
+        body: {
+            "article": {
+                "slug": ?slug,
+                "title": ?title,
+                "description": ?description,
+                "body": ?bodyText,
+                "tagList": ?tagList,
+                "createdAt": ?createdAt,
+                "updatedAt": ?updatedAt,
+                "favorited": ?favorited,
+                "favoritesCount": ?favoritesCount,
+                "author": {
+                    "username": ?username,
+                    "bio": ?bio,
+                    "image": ?image,
+                    "following": ?following
+                }
+            }
+        } ]
+}
+
+sync HandleUpdateArticleNotFound
+when {
+    Web/request: [ method: "PUT" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    Article/getBySlug: [] => [ error: ?error ]
+}
+then {
+    Web/respondError: [
+        request: ?req ;
+        status: 404 ;
+        error: "article not found" ]
+}
+
+sync HandleUpdateArticleForbidden
+when {
+    Web/request: [ method: "PUT" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?userId ]
+    Article/getBySlug: [] => [ article: ?articleId ]
+}
+where {
+    Article: { ?articleId author: ?authorId }
+    FILTER ( ?userId != ?authorId )
+}
+then {
+    Web/respondError: [
+        request: ?req ;
+        status: 403 ;
+        error: "forbidden" ]
+}
+
+sync HandleUpdateArticleValidationError
+when {
+    Web/request: [ method: "PUT" ; path: "/api/articles/:slug" ] => [ request: ?req ]
+    Article/update: [] => [ error: ?error ]
+}
+then {
+    Web/respondValidationError: [
+        request: ?req ;
+        errors: { "body": [?error] } ]
+}

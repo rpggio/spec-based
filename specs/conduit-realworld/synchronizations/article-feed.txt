@@ -1,0 +1,98 @@
+# Article Feed Synchronizations
+
+sync AuthenticateFeedRequest
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/feed" ] => [ request: ?req ]
+}
+then {
+    Web/getAuthToken: [ request: ?req ]
+}
+
+sync VerifyFeedToken
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/feed" ] => [ request: ?req ]
+    Web/getAuthToken: [ request: ?req ] => [ token: ?token ]
+}
+then {
+    JWT/verify: [ token: ?token ]
+}
+
+sync GetFeedArticles
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/feed" ; query: ?query ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?userId ]
+}
+where {
+    bind ( ?query["limit"] ?? 20 as ?limit )
+    bind ( ?query["offset"] ?? 0 as ?offset )
+}
+then {
+    Article/feed: [ user: ?userId ; limit: ?limit ; offset: ?offset ]
+}
+
+sync EnrichFeedArticles
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/feed" ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?userId ]
+    Article/feed: [] => [ articles: ?articles ]
+}
+where {
+    bind ( ?article in ?articles )
+}
+then {
+    Favorite/isFavorited: [ article: ?article ; user: ?userId ]
+}
+
+sync RespondFeedSuccess
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/feed" ] => [ request: ?req ]
+    JWT/verify: [] => [ user: ?userId ]
+    Article/feed: [] => [ articles: ?articles ; count: ?count ]
+}
+where {
+    bind ( ?article in ?articles )
+    Article: { ?article slug: ?slug ; title: ?title ; description: ?description ; body: ?bodyText ; author: ?authorId ; createdAt: ?createdAt ; updatedAt: ?updatedAt }
+    User: { ?authorId username: ?username ; bio: ?bio ; image: ?image }
+    Tag: { ?article tagList: ?tagList }
+    Favorite: { ?article count: ?favoritesCount }
+    Favorite: { ?article user: ?userId favorited: ?favorited }
+}
+then {
+    Web/respond: [
+        request: ?req ;
+        status: 200 ;
+        body: {
+            "articles": [
+                {
+                    "slug": ?slug,
+                    "title": ?title,
+                    "description": ?description,
+                    "body": ?bodyText,
+                    "tagList": ?tagList,
+                    "createdAt": ?createdAt,
+                    "updatedAt": ?updatedAt,
+                    "favorited": ?favorited,
+                    "favoritesCount": ?favoritesCount,
+                    "author": {
+                        "username": ?username,
+                        "bio": ?bio,
+                        "image": ?image,
+                        "following": true
+                    }
+                }
+            ],
+            "articlesCount": ?count
+        } ]
+}
+
+sync HandleFeedAuthError
+when {
+    Web/request: [ method: "GET" ; path: "/api/articles/feed" ] => [ request: ?req ]
+    JWT/verify: [] => [ error: ?error ]
+}
+then {
+    Web/respondError: [
+        request: ?req ;
+        status: 401 ;
+        error: "unauthorized" ]
+}
