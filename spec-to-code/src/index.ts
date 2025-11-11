@@ -27,6 +27,10 @@ import { setupUserRegistrationSyncs } from './syncs/user-registration.js'
 
 // Import controllers
 import { setupUserRoutes } from './controllers/users.js'
+import { setupArticleRoutes } from './controllers/articles.js'
+import { setupCommentRoutes } from './controllers/comments.js'
+import { setupProfileRoutes } from './controllers/profiles.js'
+import { setupTagRoutes } from './controllers/tags.js'
 
 const PORT = process.env.PORT || 3000
 
@@ -60,6 +64,10 @@ async function main() {
 
   // Register routes
   setupUserRoutes(router, db, concepts)
+  setupArticleRoutes(router, db, concepts)
+  setupCommentRoutes(router, db, concepts)
+  setupProfileRoutes(router, db, concepts)
+  setupTagRoutes(router, db, concepts)
   console.log('✅ Routes registered')
 
   // Create HTTP server
@@ -87,10 +95,31 @@ async function main() {
   server.listen(PORT, () => {
     console.log(`\n🌐 Server running on http://localhost:${PORT}`)
     console.log(`\n📚 API Documentation:`)
-    console.log(`   POST   /api/users          - Register new user`)
-    console.log(`   POST   /api/users/login    - Authenticate user`)
-    console.log(`   GET    /api/user           - Get current user`)
-    console.log(`   PUT    /api/user           - Update current user`)
+    console.log(`\n   Authentication:`)
+    console.log(`   POST   /api/users                        - Register new user`)
+    console.log(`   POST   /api/users/login                  - Authenticate user`)
+    console.log(`   GET    /api/user                         - Get current user`)
+    console.log(`   PUT    /api/user                         - Update current user`)
+    console.log(`\n   Profiles:`)
+    console.log(`   GET    /api/profiles/:username           - Get user profile`)
+    console.log(`   POST   /api/profiles/:username/follow    - Follow user`)
+    console.log(`   DELETE /api/profiles/:username/follow    - Unfollow user`)
+    console.log(`\n   Articles:`)
+    console.log(`   GET    /api/articles                     - List articles`)
+    console.log(`   GET    /api/articles/feed                - Get personalized feed`)
+    console.log(`   GET    /api/articles/:slug               - Get single article`)
+    console.log(`   POST   /api/articles                     - Create article`)
+    console.log(`   PUT    /api/articles/:slug               - Update article`)
+    console.log(`   DELETE /api/articles/:slug               - Delete article`)
+    console.log(`\n   Favorites:`)
+    console.log(`   POST   /api/articles/:slug/favorite      - Favorite article`)
+    console.log(`   DELETE /api/articles/:slug/favorite      - Unfavorite article`)
+    console.log(`\n   Comments:`)
+    console.log(`   GET    /api/articles/:slug/comments      - Get comments`)
+    console.log(`   POST   /api/articles/:slug/comments      - Add comment`)
+    console.log(`   DELETE /api/articles/:slug/comments/:id  - Delete comment`)
+    console.log(`\n   Tags:`)
+    console.log(`   GET    /api/tags                         - Get all tags`)
     console.log(`\n✨ Implementation Strategy:`)
     console.log(`   - TypeScript interfaces generated from concept specs`)
     console.log(`   - Drizzle schema with @concept annotations for provenance`)
