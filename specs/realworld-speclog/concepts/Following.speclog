@@ -1,0 +1,25 @@
+concept Following [U]
+purpose
+    to allow users to follow and unfollow other users
+state
+    follows(follower: U, target: U)
+    follower_count(user: U, count: int)
+
+    % Derived predicates
+    is_following(Follower, Target) :- follows(Follower, Target).
+    has_follower(Target, Follower) :- follows(Follower, Target).
+    following_list(User, Following) :- follows(User, Following).
+    follower_list(User, Follower) :- follows(Follower, User).
+actions
+    follow [ follower: U ; target: U ] => [ follower: U ; target: U ]
+    follow [ follower: U ; target: U ] => [ error: string ]
+    unfollow [ follower: U ; target: U ] => [ follower: U ; target: U ]
+    unfollow [ follower: U ; target: U ] => [ error: string ]
+    isFollowing [ follower: U ; target: U ] => [ following: boolean ]
+    getFollowing [ user: U ] => [ following: set U ]
+    getFollowers [ user: U ] => [ followers: set U ]
+operational principle
+    after follow [ follower: u1 ; target: u2 ] => [ follower: u1 ; target: u2 ]
+    then isFollowing [ follower: u1 ; target: u2 ] => [ following: true ]
+    and after unfollow [ follower: u1 ; target: u2 ] => [ follower: u1 ; target: u2 ]
+    then isFollowing [ follower: u1 ; target: u2 ] => [ following: false ]

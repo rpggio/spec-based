@@ -1,0 +1,302 @@
+# Profile Viewing and Following Synchronizations
+
+sync GetProfileUnauthenticated
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/profiles/:username"),
+    action_input(?req, "params", ?params),
+    action_output(?req, "request", ?reqId)
+}
+where {
+    json_path(?params, "username", ?username)
+}
+then {
+    invoke_action("Profile", "get", [username: ?username])
+}
+
+sync RespondProfileUnauthenticated
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/profiles/:username"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getProfile),
+    action_invoked(?getProfile, "Profile", "get", ?flow, _),
+    action_output(?getProfile, "user", ?userId),
+    action_output(?getProfile, "username", ?username),
+    action_output(?getProfile, "bio", ?bio),
+    action_output(?getProfile, "image", ?image),
+
+    in_flow(?req, ?flow),
+    in_flow(?getProfile, ?flow)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "profile": {
+                "username": ?username,
+                "bio": ?bio,
+                "image": ?image,
+                "following": false
+            }
+        }])
+}
+
+sync GetProfileAuthenticated
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/profiles/:username"),
+    action_input(?req, "params", ?params),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_output(?getToken, "token", ?token),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_input(?verify, "token", ?token),
+    action_output(?verify, "user", ?viewerId),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow),
+    in_flow(?verify, ?flow)
+}
+where {
+    json_path(?params, "username", ?username)
+}
+then {
+    invoke_action("Profile", "view", [viewer: ?viewerId, username: ?username])
+}
+
+sync RespondProfileAuthenticated
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/profiles/:username"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?viewProfile),
+    action_invoked(?viewProfile, "Profile", "view", ?flow, _),
+    action_output(?viewProfile, "user", ?userId),
+    action_output(?viewProfile, "username", ?username),
+    action_output(?viewProfile, "bio", ?bio),
+    action_output(?viewProfile, "image", ?image),
+    action_output(?viewProfile, "following", ?following),
+
+    in_flow(?req, ?flow),
+    in_flow(?viewProfile, ?flow)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "profile": {
+                "username": ?username,
+                "bio": ?bio,
+                "image": ?image,
+                "following": ?following
+            }
+        }])
+}
+
+sync AuthenticateFollowRequest
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/profiles/:username/follow"),
+    action_output(?req, "request", ?reqId)
+}
+then {
+    invoke_action("Web", "getAuthToken", [request: ?reqId])
+}
+
+sync VerifyFollowToken
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/profiles/:username/follow"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_input(?getToken, "request", ?reqId),
+    action_output(?getToken, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow)
+}
+then {
+    invoke_action("JWT", "verify", [token: ?token])
+}
+
+sync FollowUser
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/profiles/:username/follow"),
+    action_input(?req, "params", ?params),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?followerId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow)
+}
+where {
+    json_path(?params, "username", ?username),
+    user_username(?targetUser, ?username)
+}
+then {
+    invoke_action("Following", "follow", [follower: ?followerId, target: ?targetUser])
+}
+
+sync RespondFollowSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/profiles/:username/follow"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?follow),
+    action_invoked(?follow, "Following", "follow", ?flow, _),
+    action_output(?follow, "follower", ?followerId),
+    action_output(?follow, "target", ?targetUser),
+
+    in_flow(?req, ?flow),
+    in_flow(?follow, ?flow)
+}
+where {
+    user_username(?targetUser, ?username),
+    user_bio(?targetUser, ?bio),
+    user_image(?targetUser, ?image)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "profile": {
+                "username": ?username,
+                "bio": ?bio,
+                "image": ?image,
+                "following": true
+            }
+        }])
+}
+
+sync AuthenticateUnfollowRequest
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/profiles/:username/follow"),
+    action_output(?req, "request", ?reqId)
+}
+then {
+    invoke_action("Web", "getAuthToken", [request: ?reqId])
+}
+
+sync VerifyUnfollowToken
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/profiles/:username/follow"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_input(?getToken, "request", ?reqId),
+    action_output(?getToken, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow)
+}
+then {
+    invoke_action("JWT", "verify", [token: ?token])
+}
+
+sync UnfollowUser
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/profiles/:username/follow"),
+    action_input(?req, "params", ?params),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?followerId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow)
+}
+where {
+    json_path(?params, "username", ?username),
+    user_username(?targetUser, ?username)
+}
+then {
+    invoke_action("Following", "unfollow", [follower: ?followerId, target: ?targetUser])
+}
+
+sync RespondUnfollowSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/profiles/:username/follow"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?unfollow),
+    action_invoked(?unfollow, "Following", "unfollow", ?flow, _),
+    action_output(?unfollow, "follower", ?followerId),
+    action_output(?unfollow, "target", ?targetUser),
+
+    in_flow(?req, ?flow),
+    in_flow(?unfollow, ?flow)
+}
+where {
+    user_username(?targetUser, ?username),
+    user_bio(?targetUser, ?bio),
+    user_image(?targetUser, ?image)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "profile": {
+                "username": ?username,
+                "bio": ?bio,
+                "image": ?image,
+                "following": false
+            }
+        }])
+}
+
+sync HandleProfileNotFound
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/profiles/:username"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getProfile),
+    action_invoked(?getProfile, "Profile", "get", ?flow, _),
+    action_error(?getProfile, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?getProfile, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 404, error: "profile not found"])
+}

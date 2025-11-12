@@ -1,0 +1,23 @@
+concept JWT [U]
+purpose
+    to generate and verify authentication tokens for users
+state
+    jwt_token(user: U, token: string)
+    jwt_issued(user: U, timestamp: datetime)
+
+    % Constraints
+    :- jwt_token(U, T1), jwt_token(U, T2), T1 != T2.
+
+    % Derived predicates
+    has_token(User) :- jwt_token(User, _).
+    token_user(Token, User) :- jwt_token(User, Token).
+actions
+    generate [ user: U ] => [ token: string ]
+    verify [ token: string ] => [ user: U ]
+    verify [ token: string ] => [ error: string ]
+    getToken [ user: U ] => [ token: string ]
+    getToken [ user: U ] => [ error: string ]
+operational principle
+    after generate [ user: u1 ] => [ token: t1 ]
+    then verify [ token: t1 ] => [ user: u1 ]
+    and getToken [ user: u1 ] => [ token: t1 ]

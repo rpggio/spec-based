@@ -1,0 +1,179 @@
+# User Registration Synchronizations
+
+sync ValidateRegistrationPassword
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/users"),
+    action_input(?req, "body", ?body)
+}
+where {
+    json_path(?body, "user.password", ?password)
+}
+then {
+    invoke_action("Password", "validate", [password: ?password])
+}
+
+sync RegisterUser
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/users"),
+    action_input(?req, "body", ?body),
+
+    action_completed(?validate),
+    action_invoked(?validate, "Password", "validate", ?flow, _),
+    action_output(?validate, "valid", true),
+
+    in_flow(?req, ?flow),
+    in_flow(?validate, ?flow)
+}
+where {
+    uuid_generate(?userId),
+    json_path(?body, "user.email", ?email),
+    json_path(?body, "user.username", ?username)
+}
+then {
+    invoke_action("User", "register", [user: ?userId, email: ?email, username: ?username])
+}
+
+sync SetUserPassword
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/users"),
+    action_input(?req, "body", ?body),
+
+    action_completed(?userReg),
+    action_invoked(?userReg, "User", "register", ?flow, _),
+    action_output(?userReg, "user", ?userId),
+
+    in_flow(?req, ?flow),
+    in_flow(?userReg, ?flow)
+}
+where {
+    json_path(?body, "user.password", ?password)
+}
+then {
+    invoke_action("Password", "set", [user: ?userId, password: ?password])
+}
+
+sync GenerateRegistrationToken
+when {
+    action_completed(?userReg),
+    action_invoked(?userReg, "User", "register", ?flow, _),
+    action_output(?userReg, "user", ?userId),
+
+    action_completed(?setPass),
+    action_invoked(?setPass, "Password", "set", ?flow, _),
+    action_input(?setPass, "user", ?userId),
+
+    in_flow(?userReg, ?flow),
+    in_flow(?setPass, ?flow)
+}
+then {
+    invoke_action("JWT", "generate", [user: ?userId])
+}
+
+sync RespondRegistrationSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/users"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?userReg),
+    action_invoked(?userReg, "User", "register", ?flow, _),
+    action_output(?userReg, "user", ?userId),
+
+    action_completed(?jwtGen),
+    action_invoked(?jwtGen, "JWT", "generate", ?flow, _),
+    action_input(?jwtGen, "user", ?userId),
+    action_output(?jwtGen, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?userReg, ?flow),
+    in_flow(?jwtGen, ?flow)
+}
+where {
+    user_email(?userId, ?email),
+    user_username(?userId, ?username),
+    user_bio(?userId, ?bio),
+    user_image(?userId, ?image)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 201, body: {
+            "user": {
+                "email": ?email,
+                "username": ?username,
+                "bio": ?bio,
+                "image": ?image,
+                "token": ?token
+            }
+        }])
+}
+
+sync HandleRegistrationValidationError
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/users"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?userReg),
+    action_invoked(?userReg, "User", "register", ?flow, _),
+    action_error(?userReg, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?userReg, ?flow)
+}
+then {
+    invoke_action("Web", "respondValidationError",
+        [request: ?reqId, errors: {"body": [?error]}])
+}
+
+sync HandlePasswordValidationError
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/users"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?validate),
+    action_invoked(?validate, "Password", "validate", ?flow, _),
+    action_output(?validate, "valid", false),
+
+    in_flow(?req, ?flow),
+    in_flow(?validate, ?flow)
+}
+then {
+    invoke_action("Web", "respondValidationError",
+        [request: ?reqId, errors: {"body": ["password must meet minimum requirements"]}])
+}
+
+sync HandlePasswordSetError
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/users"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?setPass),
+    action_invoked(?setPass, "Password", "set", ?flow, _),
+    action_error(?setPass, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?setPass, ?flow)
+}
+then {
+    invoke_action("Web", "respondValidationError",
+        [request: ?reqId, errors: {"body": [?error]}])
+}

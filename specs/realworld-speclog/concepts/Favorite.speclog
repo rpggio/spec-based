@@ -1,0 +1,27 @@
+concept Favorite [A, U]
+purpose
+    to allow users to mark articles as favorites and track favorite counts
+state
+    favorited(article: A, user: U)
+    favorite_count(article: A, count: int)
+
+    % Derived predicates
+    user_favorited(User, Article) :- favorited(Article, User).
+    article_favorited_by(Article, User) :- favorited(Article, User).
+    has_favorite(User, Article) :- favorited(Article, User).
+actions
+    add [ article: A ; user: U ] => [ article: A ]
+    add [ article: A ; user: U ] => [ error: string ]
+    remove [ article: A ; user: U ] => [ article: A ]
+    remove [ article: A ; user: U ] => [ error: string ]
+    isFavorited [ article: A ; user: U ] => [ favorited: boolean ]
+    getCount [ article: A ] => [ count: int ]
+    getFavorites [ user: U ] => [ articles: set A ]
+    listByFavoriter [ username: string ; limit: int ; offset: int ] => [ articles: set A ; count: int ]
+operational principle
+    after add [ article: a1 ; user: u1 ] => [ article: a1 ]
+    then isFavorited [ article: a1 ; user: u1 ] => [ favorited: true ]
+    and getCount [ article: a1 ] => [ count: 1 ]
+    and after remove [ article: a1 ; user: u1 ] => [ article: a1 ]
+    then isFavorited [ article: a1 ; user: u1 ] => [ favorited: false ]
+    and getCount [ article: a1 ] => [ count: 0 ]

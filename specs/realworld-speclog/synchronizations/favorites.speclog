@@ -1,0 +1,357 @@
+# Favorite Synchronizations
+
+sync AuthenticateFavoriteArticle
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+    action_output(?req, "request", ?reqId)
+}
+then {
+    invoke_action("Web", "getAuthToken", [request: ?reqId])
+}
+
+sync VerifyFavoriteToken
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_input(?getToken, "request", ?reqId),
+    action_output(?getToken, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow)
+}
+then {
+    invoke_action("JWT", "verify", [token: ?token])
+}
+
+sync RetrieveArticleForFavorite
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+    action_input(?req, "params", ?params)
+}
+where {
+    json_path(?params, "slug", ?slug)
+}
+then {
+    invoke_action("Article", "getBySlug", [slug: ?slug])
+}
+
+sync FavoriteArticle
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_output(?getArticle, "article", ?articleId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+then {
+    invoke_action("Favorite", "add", [article: ?articleId, user: ?userId])
+}
+
+sync CheckFavoriteAuthorFollowing
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?favorite),
+    action_invoked(?favorite, "Favorite", "add", ?flow, _),
+    action_output(?favorite, "article", ?articleId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?favorite, ?flow)
+}
+where {
+    article_author(?articleId, ?authorId)
+}
+then {
+    invoke_action("Following", "isFollowing", [follower: ?userId, target: ?authorId])
+}
+
+sync RespondFavoriteSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?favorite),
+    action_invoked(?favorite, "Favorite", "add", ?flow, _),
+    action_output(?favorite, "article", ?articleId),
+
+    action_completed(?checkFollow),
+    action_invoked(?checkFollow, "Following", "isFollowing", ?flow, _),
+    action_output(?checkFollow, "following", ?following),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?favorite, ?flow),
+    in_flow(?checkFollow, ?flow)
+}
+where {
+    article_slug(?articleId, ?slug),
+    article_title(?articleId, ?title),
+    article_description(?articleId, ?description),
+    article_body(?articleId, ?bodyText),
+    article_author(?articleId, ?authorId),
+    article_created_at(?articleId, ?createdAt),
+    article_updated_at(?articleId, ?updatedAt),
+    user_username(?authorId, ?username),
+    user_bio(?authorId, ?bio),
+    user_image(?authorId, ?image),
+    article_tag_list(?articleId, ?tagList),
+    favorite_count(?articleId, ?favoritesCount)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "article": {
+                "slug": ?slug,
+                "title": ?title,
+                "description": ?description,
+                "body": ?bodyText,
+                "tagList": ?tagList,
+                "createdAt": ?createdAt,
+                "updatedAt": ?updatedAt,
+                "favorited": true,
+                "favoritesCount": ?favoritesCount,
+                "author": {
+                    "username": ?username,
+                    "bio": ?bio,
+                    "image": ?image,
+                    "following": ?following
+                }
+            }
+        }])
+}
+
+sync HandleFavoriteArticleNotFound
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_error(?getArticle, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 404, error: "article not found"])
+}
+
+sync AuthenticateUnfavoriteArticle
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+    action_output(?req, "request", ?reqId)
+}
+then {
+    invoke_action("Web", "getAuthToken", [request: ?reqId])
+}
+
+sync VerifyUnfavoriteToken
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_input(?getToken, "request", ?reqId),
+    action_output(?getToken, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow)
+}
+then {
+    invoke_action("JWT", "verify", [token: ?token])
+}
+
+sync RetrieveArticleForUnfavorite
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+    action_input(?req, "params", ?params)
+}
+where {
+    json_path(?params, "slug", ?slug)
+}
+then {
+    invoke_action("Article", "getBySlug", [slug: ?slug])
+}
+
+sync UnfavoriteArticle
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_output(?getArticle, "article", ?articleId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+then {
+    invoke_action("Favorite", "remove", [article: ?articleId, user: ?userId])
+}
+
+sync CheckUnfavoriteAuthorFollowing
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?unfavorite),
+    action_invoked(?unfavorite, "Favorite", "remove", ?flow, _),
+    action_output(?unfavorite, "article", ?articleId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?unfavorite, ?flow)
+}
+where {
+    article_author(?articleId, ?authorId)
+}
+then {
+    invoke_action("Following", "isFollowing", [follower: ?userId, target: ?authorId])
+}
+
+sync RespondUnfavoriteSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?unfavorite),
+    action_invoked(?unfavorite, "Favorite", "remove", ?flow, _),
+    action_output(?unfavorite, "article", ?articleId),
+
+    action_completed(?checkFollow),
+    action_invoked(?checkFollow, "Following", "isFollowing", ?flow, _),
+    action_output(?checkFollow, "following", ?following),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?unfavorite, ?flow),
+    in_flow(?checkFollow, ?flow)
+}
+where {
+    article_slug(?articleId, ?slug),
+    article_title(?articleId, ?title),
+    article_description(?articleId, ?description),
+    article_body(?articleId, ?bodyText),
+    article_author(?articleId, ?authorId),
+    article_created_at(?articleId, ?createdAt),
+    article_updated_at(?articleId, ?updatedAt),
+    user_username(?authorId, ?username),
+    user_bio(?authorId, ?bio),
+    user_image(?authorId, ?image),
+    article_tag_list(?articleId, ?tagList),
+    favorite_count(?articleId, ?favoritesCount)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "article": {
+                "slug": ?slug,
+                "title": ?title,
+                "description": ?description,
+                "body": ?bodyText,
+                "tagList": ?tagList,
+                "createdAt": ?createdAt,
+                "updatedAt": ?updatedAt,
+                "favorited": false,
+                "favoritesCount": ?favoritesCount,
+                "author": {
+                    "username": ?username,
+                    "bio": ?bio,
+                    "image": ?image,
+                    "following": ?following
+                }
+            }
+        }])
+}
+
+sync HandleUnfavoriteArticleNotFound
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/favorite"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_error(?getArticle, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 404, error: "article not found"])
+}

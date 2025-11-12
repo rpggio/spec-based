@@ -1,0 +1,160 @@
+# User Update Synchronizations
+
+sync AuthenticateUpdateRequest
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/user"),
+    action_output(?req, "request", ?reqId)
+}
+then {
+    invoke_action("Web", "getAuthToken", [request: ?reqId])
+}
+
+sync VerifyUpdateToken
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/user"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_input(?getToken, "request", ?reqId),
+    action_output(?getToken, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow)
+}
+then {
+    invoke_action("JWT", "verify", [token: ?token])
+}
+
+sync UpdateUserProfile
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/user"),
+    action_input(?req, "body", ?body),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow)
+}
+where {
+    json_path(?body, "user.email", ?email),
+    json_path(?body, "user.bio", ?bio),
+    json_path(?body, "user.image", ?image)
+}
+then {
+    invoke_action("User", "update", [user: ?userId, email: ?email, bio: ?bio, image: ?image])
+}
+
+sync UpdateUserPassword
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/user"),
+    action_input(?req, "body", ?body),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow)
+}
+where {
+    json_path(?body, "user.password", ?password),
+    ?password != null
+}
+then {
+    invoke_action("Password", "set", [user: ?userId, password: ?password])
+}
+
+sync RespondUpdateSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/user"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?update),
+    action_invoked(?update, "User", "update", ?flow, _),
+    action_input(?update, "user", ?userId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?update, ?flow)
+}
+where {
+    user_email(?userId, ?email),
+    user_username(?userId, ?username),
+    user_bio(?userId, ?bio),
+    user_image(?userId, ?image),
+    jwt_token(?userId, ?token)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "user": {
+                "email": ?email,
+                "username": ?username,
+                "bio": ?bio,
+                "image": ?image,
+                "token": ?token
+            }
+        }])
+}
+
+sync HandleUpdateAuthError
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/user"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_error(?verify, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 401, error: "unauthorized"])
+}
+
+sync HandleUpdateValidationError
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/user"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?update),
+    action_invoked(?update, "User", "update", ?flow, _),
+    action_error(?update, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?update, ?flow)
+}
+then {
+    invoke_action("Web", "respondValidationError",
+        [request: ?reqId, errors: {"body": [?error]}])
+}

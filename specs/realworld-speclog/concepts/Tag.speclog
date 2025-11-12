@@ -1,0 +1,31 @@
+concept Tag [A, T]
+purpose
+    to categorize articles with tags and retrieve all available tags
+state
+    tag_exists(tag: T)
+    tag_name(tag: T, name: string)
+    article_tag(article: A, tag: T)
+
+    % Constraints
+    :- tag_name(T, N1), tag_name(T, N2), N1 != N2.
+    :- tag_name(T1, N), tag_name(T2, N), T1 != T2.
+
+    % Derived predicates
+    tag_by_name(Name, Tag) :- tag_name(Tag, Name).
+    article_has_tag(Article, Tag) :- article_tag(Article, Tag).
+    tag_on_article(Tag, Article) :- article_tag(Article, Tag).
+    tags_for_article(Article, Tag) :- article_tag(Article, Tag).
+actions
+    add [ article: A ; tag: string ] => [ tag: T ]
+    add [ article: A ; tag: string ] => [ error: string ]
+    remove [ article: A ; tag: T ] => [ tag: T ]
+    remove [ article: A ; tag: T ] => [ error: string ]
+    getTags [ article: A ] => [ tags: set T ]
+    getTagNames [ article: A ] => [ tagList: list string ]
+    list [] => [ tags: list string ]
+    getArticles [ tag: string ] => [ articles: set A ]
+operational principle
+    after add [ article: a1 ; tag: "testing" ] => [ tag: t1 ]
+    and add [ article: a2 ; tag: "testing" ] => [ tag: t1 ]
+    then list [] => [ tags: ["testing"] ]
+    and getArticles [ tag: "testing" ] => [ articles: {a1, a2} ]

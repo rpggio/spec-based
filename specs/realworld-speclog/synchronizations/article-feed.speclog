@@ -1,0 +1,165 @@
+# Article Feed Synchronizations
+
+sync AuthenticateFeedRequest
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/feed"),
+    action_output(?req, "request", ?reqId)
+}
+then {
+    invoke_action("Web", "getAuthToken", [request: ?reqId])
+}
+
+sync VerifyFeedToken
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/feed"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_input(?getToken, "request", ?reqId),
+    action_output(?getToken, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow)
+}
+then {
+    invoke_action("JWT", "verify", [token: ?token])
+}
+
+sync GetFeedArticles
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/feed"),
+    action_input(?req, "query", ?query),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow)
+}
+where {
+    default_value(?query, "limit", 20, ?limit),
+    default_value(?query, "offset", 0, ?offset)
+}
+then {
+    invoke_action("Article", "feed", [user: ?userId, limit: ?limit, offset: ?offset])
+}
+
+sync EnrichFeedArticles
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/feed"),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?feed),
+    action_invoked(?feed, "Article", "feed", ?flow, _),
+    action_output(?feed, "articles", ?articles),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?feed, ?flow)
+}
+where {
+    list_member(?article, ?articles)
+}
+then {
+    invoke_action("Favorite", "isFavorited", [article: ?article, user: ?userId])
+}
+
+sync RespondFeedSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/feed"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?feed),
+    action_invoked(?feed, "Article", "feed", ?flow, _),
+    action_output(?feed, "articles", ?articles),
+    action_output(?feed, "count", ?count),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?feed, ?flow)
+}
+where {
+    list_member(?article, ?articles),
+    article_slug(?article, ?slug),
+    article_title(?article, ?title),
+    article_description(?article, ?description),
+    article_body(?article, ?bodyText),
+    article_author(?article, ?authorId),
+    article_created_at(?article, ?createdAt),
+    article_updated_at(?article, ?updatedAt),
+    user_username(?authorId, ?username),
+    user_bio(?authorId, ?bio),
+    user_image(?authorId, ?image),
+    article_tag_list(?article, ?tagList),
+    favorite_count(?article, ?favoritesCount),
+    favorite_user_favorited(?article, ?userId, ?favorited)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "articles": [
+                {
+                    "slug": ?slug,
+                    "title": ?title,
+                    "description": ?description,
+                    "body": ?bodyText,
+                    "tagList": ?tagList,
+                    "createdAt": ?createdAt,
+                    "updatedAt": ?updatedAt,
+                    "favorited": ?favorited,
+                    "favoritesCount": ?favoritesCount,
+                    "author": {
+                        "username": ?username,
+                        "bio": ?bio,
+                        "image": ?image,
+                        "following": true
+                    }
+                }
+            ],
+            "articlesCount": ?count
+        }])
+}
+
+sync HandleFeedAuthError
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/feed"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_error(?verify, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 401, error: "unauthorized"])
+}

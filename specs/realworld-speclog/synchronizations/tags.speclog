@@ -1,0 +1,32 @@
+# Tag Synchronizations
+
+sync ListTags
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/tags"),
+    action_output(?req, "request", ?reqId)
+}
+then {
+    invoke_action("Tag", "list", [])
+}
+
+sync RespondListTags
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/tags"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?listAction),
+    action_output(?listAction, "tags", ?tags),
+
+    in_flow(?req, ?flow),
+    in_flow(?listAction, ?flow)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {"tags": ?tags}])
+}

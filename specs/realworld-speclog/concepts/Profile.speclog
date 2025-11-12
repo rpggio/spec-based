@@ -1,0 +1,16 @@
+concept Profile [U]
+purpose
+    to provide public profile views of users with social relationship status
+state
+    profile_exists(user: U)
+
+    % Derived predicates - profiles are tied to user data
+    has_profile(User) :- profile_exists(User).
+actions
+    get [ username: string ] => [ user: U ; username: string ; bio: string ; image: string ]
+    get [ username: string ] => [ error: string ]
+    view [ viewer: U ; username: string ] => [ user: U ; username: string ; bio: string ; image: string ; following: boolean ]
+    view [ viewer: U ; username: string ] => [ error: string ]
+operational principle
+    after get [ username: "alice" ] => [ user: u1 ; username: "alice" ; bio: "" ; image: "" ]
+    then view [ viewer: u2 ; username: "alice" ] => [ user: u1 ; username: "alice" ; bio: "" ; image: "" ; following: false ]

@@ -1,0 +1,170 @@
+# Article Deletion Synchronizations
+
+sync AuthenticateDeleteArticle
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId)
+}
+then {
+    invoke_action("Web", "getAuthToken", [request: ?reqId])
+}
+
+sync VerifyDeleteArticleToken
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_input(?getToken, "request", ?reqId),
+    action_output(?getToken, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow)
+}
+then {
+    invoke_action("JWT", "verify", [token: ?token])
+}
+
+sync RetrieveArticleForDelete
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_input(?req, "params", ?params)
+}
+where {
+    json_path(?params, "slug", ?slug)
+}
+then {
+    invoke_action("Article", "getBySlug", [slug: ?slug])
+}
+
+sync VerifyDeleteOwnership
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug"),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_output(?getArticle, "article", ?articleId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+where {
+    article_author(?articleId, ?authorId),
+    ?userId = ?authorId
+}
+then {
+    invoke_action("Article", "delete", [article: ?articleId])
+}
+
+sync CascadeDeleteComments
+when {
+    action_completed(?delete),
+    action_invoked(?delete, "Article", "delete", ?flow, _),
+    action_output(?delete, "article", ?articleId)
+}
+where {
+    comment_article(?commentId, ?articleId)
+}
+then {
+    invoke_action("Comment", "delete", [comment: ?commentId])
+}
+
+sync CascadeDeleteFavorites
+when {
+    action_completed(?delete),
+    action_invoked(?delete, "Article", "delete", ?flow, _),
+    action_output(?delete, "article", ?articleId)
+}
+where {
+    favorited_by(?articleId, ?userId)
+}
+then {
+    invoke_action("Favorite", "remove", [article: ?articleId, user: ?userId])
+}
+
+sync RespondDeleteArticleSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?delete),
+    action_invoked(?delete, "Article", "delete", ?flow, _),
+    action_output(?delete, "article", ?articleId),
+
+    in_flow(?req, ?flow),
+    in_flow(?delete, ?flow)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 204, body: {}])
+}
+
+sync HandleDeleteArticleNotFound
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_error(?getArticle, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 404, error: "article not found"])
+}
+
+sync HandleDeleteArticleForbidden
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_output(?getArticle, "article", ?articleId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+where {
+    article_author(?articleId, ?authorId),
+    ?userId != ?authorId
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 403, error: "forbidden"])
+}

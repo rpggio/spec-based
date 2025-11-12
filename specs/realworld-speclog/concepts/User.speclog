@@ -1,0 +1,35 @@
+concept User [U]
+purpose
+    to manage user accounts with unique identities and profile information
+state
+    user_exists(user: U)
+    user_email(user: U, email: string)
+    user_username(user: U, username: string)
+    user_bio(user: U, bio: string)
+    user_image(user: U, image: string)
+
+    % Constraints
+    :- user_email(U, E1), user_email(U, E2), E1 != E2.
+    :- user_username(U, N1), user_username(U, N2), N1 != N2.
+    :- user_email(U1, E), user_email(U2, E), U1 != U2.
+    :- user_username(U1, N), user_username(U2, N), U1 != U2.
+
+    % Derived predicates
+    user_by_email(Email, User) :- user_email(User, Email).
+    user_by_username(Username, User) :- user_username(User, Username).
+actions
+    register [ user: U ; email: string ; username: string ] => [ user: U ]
+    register [ user: U ; email: string ; username: string ] => [ error: string ]
+    update [ user: U ; email: string ; bio: string ; image: string ] => [ user: U ]
+    update [ user: U ; email: string ; bio: string ; image: string ] => [ error: string ]
+    getByEmail [ email: string ] => [ user: U ]
+    getByEmail [ email: string ] => [ error: string ]
+    getByUsername [ username: string ] => [ user: U ]
+    getByUsername [ username: string ] => [ error: string ]
+    exists [ user: U ] => [ exists: boolean ]
+operational principle
+    after register [ user: u1 ; email: "test@example.com" ; username: "testuser" ]
+        => [ user: u1 ]
+    then getByEmail [ email: "test@example.com" ] => [ user: u1 ]
+    and getByUsername [ username: "testuser" ] => [ user: u1 ]
+    and exists [ user: u1 ] => [ exists: true ]

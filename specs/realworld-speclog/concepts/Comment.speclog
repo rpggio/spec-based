@@ -1,0 +1,38 @@
+concept Comment [C, A, U]
+purpose
+    to allow users to add and manage comments on articles
+state
+    comment_exists(comment: C)
+    comment_id(comment: C, id: int)
+    comment_body(comment: C, body: string)
+    comment_article(comment: C, article: A)
+    comment_author(comment: C, author: U)
+    comment_created_at(comment: C, timestamp: datetime)
+    comment_updated_at(comment: C, timestamp: datetime)
+
+    % Constraints
+    :- comment_id(C, I1), comment_id(C, I2), I1 != I2.
+    :- comment_id(C1, I), comment_id(C2, I), C1 != C2.
+    :- comment_article(C, A1), comment_article(C, A2), A1 != A2.
+    :- comment_author(C, U1), comment_author(C, U2), U1 != U2.
+
+    % Derived predicates
+    comment_by_id(Id, Comment) :- comment_id(Comment, Id).
+    comment_on_article(Comment, Article) :- comment_article(Comment, Article).
+    article_has_comment(Article, Comment) :- comment_article(Comment, Article).
+actions
+    create [ comment: C ; id: int ; body: string ; article: A ; author: U ] => [ comment: C ]
+    create [ comment: C ; id: int ; body: string ; article: A ; author: U ] => [ error: string ]
+    delete [ comment: C ] => [ comment: C ]
+    delete [ comment: C ] => [ error: string ]
+    list [ article: A ] => [ comments: set C ]
+    getById [ id: int ] => [ comment: C ]
+    getById [ id: int ] => [ error: string ]
+    getAuthor [ comment: C ] => [ author: U ]
+operational principle
+    after create [ comment: c1 ; id: 1 ; body: "Great article!" ; article: a1 ; author: u1 ]
+        => [ comment: c1 ]
+    then list [ article: a1 ] => [ comments: {c1} ]
+    and getById [ id: 1 ] => [ comment: c1 ]
+    and after delete [ comment: c1 ] => [ comment: c1 ]
+    then list [ article: a1 ] => [ comments: {} ]

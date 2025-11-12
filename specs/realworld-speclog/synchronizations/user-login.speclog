@@ -1,0 +1,142 @@
+# User Login Synchronizations
+
+sync AuthenticateUser
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/users/login"),
+    action_input(?req, "body", ?body),
+    action_output(?req, "request", ?reqId)
+}
+where {
+    json_path(?body, "user.email", ?email)
+}
+then {
+    invoke_action("User", "getByEmail", [email: ?email])
+}
+
+sync VerifyPassword
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/users/login"),
+    action_input(?req, "body", ?body),
+
+    action_completed(?getUser),
+    action_invoked(?getUser, "User", "getByEmail", ?flow, _),
+    action_output(?getUser, "user", ?userId),
+
+    in_flow(?req, ?flow),
+    in_flow(?getUser, ?flow)
+}
+where {
+    json_path(?body, "user.password", ?password)
+}
+then {
+    invoke_action("Password", "check", [user: ?userId, password: ?password])
+}
+
+sync GenerateLoginToken
+when {
+    action_completed(?getUser),
+    action_invoked(?getUser, "User", "getByEmail", ?flow, _),
+    action_output(?getUser, "user", ?userId),
+
+    action_completed(?checkPass),
+    action_invoked(?checkPass, "Password", "check", ?flow, _),
+    action_input(?checkPass, "user", ?userId),
+    action_output(?checkPass, "valid", true),
+
+    in_flow(?getUser, ?flow),
+    in_flow(?checkPass, ?flow)
+}
+then {
+    invoke_action("JWT", "generate", [user: ?userId])
+}
+
+sync RespondLoginSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/users/login"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getUser),
+    action_invoked(?getUser, "User", "getByEmail", ?flow, _),
+    action_output(?getUser, "user", ?userId),
+
+    action_completed(?checkPass),
+    action_invoked(?checkPass, "Password", "check", ?flow, _),
+    action_output(?checkPass, "valid", true),
+
+    action_completed(?jwtGen),
+    action_invoked(?jwtGen, "JWT", "generate", ?flow, _),
+    action_input(?jwtGen, "user", ?userId),
+    action_output(?jwtGen, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?getUser, ?flow),
+    in_flow(?checkPass, ?flow),
+    in_flow(?jwtGen, ?flow)
+}
+where {
+    user_email(?userId, ?email),
+    user_username(?userId, ?username),
+    user_bio(?userId, ?bio),
+    user_image(?userId, ?image)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "user": {
+                "email": ?email,
+                "username": ?username,
+                "bio": ?bio,
+                "image": ?image,
+                "token": ?token
+            }
+        }])
+}
+
+sync HandleLoginUserNotFound
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/users/login"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getUser),
+    action_invoked(?getUser, "User", "getByEmail", ?flow, _),
+    action_error(?getUser, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?getUser, ?flow)
+}
+then {
+    invoke_action("Web", "respondValidationError",
+        [request: ?reqId, errors: {"body": ["user not found"]}])
+}
+
+sync HandleLoginInvalidPassword
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/users/login"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?checkPass),
+    action_invoked(?checkPass, "Password", "check", ?flow, _),
+    action_output(?checkPass, "valid", false),
+
+    in_flow(?req, ?flow),
+    in_flow(?checkPass, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 400, error: "invalid credentials"])
+}

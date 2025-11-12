@@ -1,0 +1,43 @@
+concept Article [A, U]
+purpose
+    to manage blog articles with metadata, authorship, and slug-based identification
+state
+    article_exists(article: A)
+    article_slug(article: A, slug: string)
+    article_title(article: A, title: string)
+    article_description(article: A, description: string)
+    article_body(article: A, body: string)
+    article_author(article: A, author: U)
+    article_created_at(article: A, timestamp: datetime)
+    article_updated_at(article: A, timestamp: datetime)
+
+    % Constraints
+    :- article_slug(A, S1), article_slug(A, S2), S1 != S2.
+    :- article_slug(A1, S), article_slug(A2, S), A1 != A2.
+    :- article_author(A, U1), article_author(A, U2), U1 != U2.
+
+    % Derived predicates
+    article_by_slug(Slug, Article) :- article_slug(Article, Slug).
+    article_by_author(Author, Article) :- article_author(Article, Author).
+actions
+    create [ article: A ; slug: string ; title: string ; description: string ; body: string ; author: U ] => [ article: A ]
+    create [ article: A ; slug: string ; title: string ; description: string ; body: string ; author: U ] => [ error: string ]
+    getBySlug [ slug: string ] => [ article: A ; title: string ; description: string ; body: string ; author: U ; createdAt: datetime ; updatedAt: datetime ]
+    getBySlug [ slug: string ] => [ error: string ]
+    update [ article: A ; title: string ; description: string ; body: string ] => [ article: A ]
+    update [ article: A ; title: string ; description: string ; body: string ] => [ error: string ]
+    delete [ article: A ] => [ article: A ]
+    delete [ article: A ] => [ error: string ]
+    list [ limit: int ; offset: int ] => [ articles: set A ; count: int ]
+    listByAuthor [ author: U ; limit: int ; offset: int ] => [ articles: set A ; count: int ]
+    listByTag [ tag: string ; limit: int ; offset: int ] => [ articles: set A ; count: int ]
+    feed [ user: U ; limit: int ; offset: int ] => [ articles: set A ; count: int ]
+    getAuthor [ article: A ] => [ author: U ]
+    exists [ article: A ] => [ exists: boolean ]
+operational principle
+    after create [ article: a1 ; slug: "test-article" ; title: "Test" ; description: "Desc" ; body: "Body" ; author: u1 ]
+        => [ article: a1 ]
+    then getBySlug [ slug: "test-article" ] => [ article: a1 ; title: "Test" ; ... ]
+    and after update [ article: a1 ; title: "Updated" ; description: "Desc" ; body: "Body" ]
+        => [ article: a1 ]
+    then getBySlug [ slug: "test-article" ] => [ article: a1 ; title: "Updated" ; ... ]

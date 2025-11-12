@@ -1,0 +1,181 @@
+# Article Creation Synchronizations
+
+sync AuthenticateCreateArticle
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles"),
+    action_output(?req, "request", ?reqId)
+}
+then {
+    invoke_action("Web", "getAuthToken", [request: ?reqId])
+}
+
+sync VerifyCreateArticleToken
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_input(?getToken, "request", ?reqId),
+    action_output(?getToken, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow)
+}
+then {
+    invoke_action("JWT", "verify", [token: ?token])
+}
+
+sync CreateArticle
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles"),
+    action_input(?req, "body", ?body),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?authorId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow)
+}
+where {
+    uuid_generate(?articleId),
+    json_path(?body, "article.title", ?title),
+    json_path(?body, "article.description", ?description),
+    json_path(?body, "article.body", ?bodyText),
+    slugify(?title, ?slug)
+}
+then {
+    invoke_action("Article", "create",
+        [article: ?articleId, slug: ?slug, title: ?title, description: ?description, body: ?bodyText, author: ?authorId])
+}
+
+sync AddArticleTags
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles"),
+    action_input(?req, "body", ?body),
+
+    action_completed(?create),
+    action_invoked(?create, "Article", "create", ?flow, _),
+    action_output(?create, "article", ?articleId),
+
+    in_flow(?req, ?flow),
+    in_flow(?create, ?flow)
+}
+where {
+    json_path(?body, "article.tagList", ?tags),
+    ?tags != null,
+    list_length(?tags, ?len),
+    ?len > 0,
+    list_member(?tagName, ?tags)
+}
+then {
+    invoke_action("Tag", "add", [article: ?articleId, tag: ?tagName])
+}
+
+sync RespondCreateArticleSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?create),
+    action_invoked(?create, "Article", "create", ?flow, _),
+    action_output(?create, "article", ?articleId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?authorId),
+
+    in_flow(?req, ?flow),
+    in_flow(?create, ?flow),
+    in_flow(?verify, ?flow)
+}
+where {
+    article_slug(?articleId, ?slug),
+    article_title(?articleId, ?title),
+    article_description(?articleId, ?description),
+    article_body(?articleId, ?bodyText),
+    article_created_at(?articleId, ?createdAt),
+    article_updated_at(?articleId, ?updatedAt),
+    user_username(?authorId, ?username),
+    user_bio(?authorId, ?bio),
+    user_image(?authorId, ?image),
+    article_tag_list(?articleId, ?tagList)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 201, body: {
+            "article": {
+                "slug": ?slug,
+                "title": ?title,
+                "description": ?description,
+                "body": ?bodyText,
+                "tagList": ?tagList,
+                "createdAt": ?createdAt,
+                "updatedAt": ?updatedAt,
+                "favorited": false,
+                "favoritesCount": 0,
+                "author": {
+                    "username": ?username,
+                    "bio": ?bio,
+                    "image": ?image,
+                    "following": false
+                }
+            }
+        }])
+}
+
+sync HandleCreateArticleValidationError
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?create),
+    action_invoked(?create, "Article", "create", ?flow, _),
+    action_error(?create, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?create, ?flow)
+}
+then {
+    invoke_action("Web", "respondValidationError",
+        [request: ?reqId, errors: {"body": [?error]}])
+}
+
+sync HandleCreateArticleAuthError
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_error(?verify, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 401, error: "unauthorized"])
+}

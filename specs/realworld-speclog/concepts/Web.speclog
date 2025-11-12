@@ -1,0 +1,28 @@
+concept Web [R]
+purpose
+    to handle HTTP requests and send responses to clients
+state
+    request_exists(request: R)
+    request_method(request: R, method: string)
+    request_path(request: R, path: string)
+    request_headers(request: R, headers: map)
+    request_body(request: R, body: map)
+    request_params(request: R, params: map)
+    request_query(request: R, query: map)
+
+    % Derived predicates
+    request_by_method_path(Method, Path, Request) :-
+        request_method(Request, Method),
+        request_path(Request, Path).
+actions
+    request [ request: R ; method: string ; path: string ; headers: map ; body: map ; params: map ; query: map ] => [ request: R ]
+    respond [ request: R ; status: int ; body: map ] => [ request: R ]
+    respondError [ request: R ; status: int ; error: string ] => [ request: R ]
+    respondValidationError [ request: R ; errors: map ] => [ request: R ]
+    getAuthToken [ request: R ] => [ token: string ]
+    getAuthToken [ request: R ] => [ error: string ]
+operational principle
+    after request [ request: r1 ; method: "POST" ; path: "/api/users" ; ... ]
+        => [ request: r1 ]
+    then respond [ request: r1 ; status: 201 ; body: {...} ]
+        => [ request: r1 ]

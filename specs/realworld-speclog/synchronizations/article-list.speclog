@@ -1,0 +1,270 @@
+# Article Listing Synchronizations
+
+sync ListAllArticles
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles"),
+    action_input(?req, "query", ?query),
+    action_output(?req, "request", ?reqId)
+}
+where {
+    default_value(?query, "limit", 20, ?limit),
+    default_value(?query, "offset", 0, ?offset),
+    json_path(?query, "tag", ?tag),
+    json_path(?query, "author", ?author),
+    json_path(?query, "favorited", ?favorited),
+    ?tag = null,
+    ?author = null,
+    ?favorited = null
+}
+then {
+    invoke_action("Article", "list", [limit: ?limit, offset: ?offset])
+}
+
+sync ListArticlesByTag
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles"),
+    action_input(?req, "query", ?query),
+    action_output(?req, "request", ?reqId)
+}
+where {
+    json_path(?query, "tag", ?tag),
+    ?tag != null,
+    default_value(?query, "limit", 20, ?limit),
+    default_value(?query, "offset", 0, ?offset)
+}
+then {
+    invoke_action("Article", "listByTag", [tag: ?tag, limit: ?limit, offset: ?offset])
+}
+
+sync ListArticlesByAuthor
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles"),
+    action_input(?req, "query", ?query),
+    action_output(?req, "request", ?reqId)
+}
+where {
+    json_path(?query, "author", ?authorName),
+    ?authorName != null,
+    default_value(?query, "limit", 20, ?limit),
+    default_value(?query, "offset", 0, ?offset),
+    user_username(?authorId, ?authorName)
+}
+then {
+    invoke_action("Article", "listByAuthor", [author: ?authorId, limit: ?limit, offset: ?offset])
+}
+
+sync ListArticlesByFavoriter
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles"),
+    action_input(?req, "query", ?query),
+    action_output(?req, "request", ?reqId)
+}
+where {
+    json_path(?query, "favorited", ?favoriterName),
+    ?favoriterName != null,
+    default_value(?query, "limit", 20, ?limit),
+    default_value(?query, "offset", 0, ?offset)
+}
+then {
+    invoke_action("Favorite", "listByFavoriter", [username: ?favoriterName, limit: ?limit, offset: ?offset])
+}
+
+sync RespondArticleListUnauthenticated
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?list),
+    action_invoked(?list, "Article", "list", ?flow, _),
+    action_output(?list, "articles", ?articles),
+    action_output(?list, "count", ?count),
+
+    in_flow(?req, ?flow),
+    in_flow(?list, ?flow)
+}
+where {
+    list_member(?article, ?articles),
+    article_slug(?article, ?slug),
+    article_title(?article, ?title),
+    article_description(?article, ?description),
+    article_body(?article, ?bodyText),
+    article_author(?article, ?authorId),
+    article_created_at(?article, ?createdAt),
+    article_updated_at(?article, ?updatedAt),
+    user_username(?authorId, ?username),
+    user_bio(?authorId, ?bio),
+    user_image(?authorId, ?image),
+    article_tag_list(?article, ?tagList),
+    favorite_count(?article, ?favoritesCount)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "articles": [
+                {
+                    "slug": ?slug,
+                    "title": ?title,
+                    "description": ?description,
+                    "body": ?bodyText,
+                    "tagList": ?tagList,
+                    "createdAt": ?createdAt,
+                    "updatedAt": ?updatedAt,
+                    "favorited": false,
+                    "favoritesCount": ?favoritesCount,
+                    "author": {
+                        "username": ?username,
+                        "bio": ?bio,
+                        "image": ?image,
+                        "following": false
+                    }
+                }
+            ],
+            "articlesCount": ?count
+        }])
+}
+
+sync EnrichArticleListAuthenticated
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles"),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_output(?getToken, "token", ?token),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_input(?verify, "token", ?token),
+    action_output(?verify, "user", ?viewerId),
+
+    action_completed(?list),
+    action_invoked(?list, "Article", "list", ?flow, _),
+    action_output(?list, "articles", ?articles),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?list, ?flow)
+}
+where {
+    list_member(?article, ?articles)
+}
+then {
+    invoke_action("Favorite", "isFavorited", [article: ?article, user: ?viewerId])
+}
+
+sync EnrichArticleListFollowing
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles"),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?viewerId),
+
+    action_completed(?list),
+    action_invoked(?list, "Article", "list", ?flow, _),
+    action_output(?list, "articles", ?articles),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?list, ?flow)
+}
+where {
+    list_member(?article, ?articles),
+    article_author(?article, ?authorId)
+}
+then {
+    invoke_action("Following", "isFollowing", [follower: ?viewerId, target: ?authorId])
+}
+
+sync RespondArticleListAuthenticated
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?list),
+    action_invoked(?list, "Article", "list", ?flow, _),
+    action_output(?list, "articles", ?articles),
+    action_output(?list, "count", ?count),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?viewerId),
+
+    action_completed(?checkFav),
+    action_invoked(?checkFav, "Favorite", "isFavorited", ?flow, _),
+    action_output(?checkFav, "favorited", ?favorited),
+
+    action_completed(?checkFollow),
+    action_invoked(?checkFollow, "Following", "isFollowing", ?flow, _),
+    action_output(?checkFollow, "following", ?following),
+
+    in_flow(?req, ?flow),
+    in_flow(?list, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?checkFav, ?flow),
+    in_flow(?checkFollow, ?flow)
+}
+where {
+    list_member(?article, ?articles),
+    article_slug(?article, ?slug),
+    article_title(?article, ?title),
+    article_description(?article, ?description),
+    article_body(?article, ?bodyText),
+    article_author(?article, ?authorId),
+    article_created_at(?article, ?createdAt),
+    article_updated_at(?article, ?updatedAt),
+    user_username(?authorId, ?username),
+    user_bio(?authorId, ?bio),
+    user_image(?authorId, ?image),
+    article_tag_list(?article, ?tagList),
+    favorite_count(?article, ?favoritesCount)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "articles": [
+                {
+                    "slug": ?slug,
+                    "title": ?title,
+                    "description": ?description,
+                    "body": ?bodyText,
+                    "tagList": ?tagList,
+                    "createdAt": ?createdAt,
+                    "updatedAt": ?updatedAt,
+                    "favorited": ?favorited,
+                    "favoritesCount": ?favoritesCount,
+                    "author": {
+                        "username": ?username,
+                        "bio": ?bio,
+                        "image": ?image,
+                        "following": ?following
+                    }
+                }
+            ],
+            "articlesCount": ?count
+        }])
+}

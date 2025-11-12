@@ -1,0 +1,265 @@
+# Article Update Synchronizations
+
+sync AuthenticateUpdateArticle
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId)
+}
+then {
+    invoke_action("Web", "getAuthToken", [request: ?reqId])
+}
+
+sync VerifyUpdateArticleToken
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_input(?getToken, "request", ?reqId),
+    action_output(?getToken, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow)
+}
+then {
+    invoke_action("JWT", "verify", [token: ?token])
+}
+
+sync RetrieveArticleForUpdate
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_input(?req, "params", ?params)
+}
+where {
+    json_path(?params, "slug", ?slug)
+}
+then {
+    invoke_action("Article", "getBySlug", [slug: ?slug])
+}
+
+sync UpdateArticleContent
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_input(?req, "body", ?body),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_output(?getArticle, "article", ?articleId),
+    action_output(?getArticle, "author", ?authorId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+where {
+    ?userId = ?authorId,
+    json_path(?body, "article.title", ?title),
+    json_path(?body, "article.description", ?description),
+    json_path(?body, "article.body", ?bodyText)
+}
+then {
+    invoke_action("Article", "update",
+        [article: ?articleId, title: ?title, description: ?description, body: ?bodyText])
+}
+
+sync CheckUpdateArticleFavorited
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/articles/:slug"),
+
+    action_completed(?update),
+    action_invoked(?update, "Article", "update", ?flow, _),
+    action_output(?update, "article", ?articleId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    in_flow(?req, ?flow),
+    in_flow(?update, ?flow),
+    in_flow(?verify, ?flow)
+}
+then {
+    invoke_action("Favorite", "isFavorited", [article: ?articleId, user: ?userId])
+}
+
+sync CheckUpdateArticleFollowing
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/articles/:slug"),
+
+    action_completed(?update),
+    action_invoked(?update, "Article", "update", ?flow, _),
+    action_output(?update, "article", ?articleId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    in_flow(?req, ?flow),
+    in_flow(?update, ?flow),
+    in_flow(?verify, ?flow)
+}
+where {
+    article_author(?articleId, ?authorId)
+}
+then {
+    invoke_action("Following", "isFollowing", [follower: ?userId, target: ?authorId])
+}
+
+sync RespondUpdateArticleSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?update),
+    action_invoked(?update, "Article", "update", ?flow, _),
+    action_output(?update, "article", ?articleId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?checkFav),
+    action_invoked(?checkFav, "Favorite", "isFavorited", ?flow, _),
+    action_output(?checkFav, "favorited", ?favorited),
+
+    action_completed(?checkFollow),
+    action_invoked(?checkFollow, "Following", "isFollowing", ?flow, _),
+    action_output(?checkFollow, "following", ?following),
+
+    in_flow(?req, ?flow),
+    in_flow(?update, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?checkFav, ?flow),
+    in_flow(?checkFollow, ?flow)
+}
+where {
+    article_slug(?articleId, ?slug),
+    article_title(?articleId, ?title),
+    article_description(?articleId, ?description),
+    article_body(?articleId, ?bodyText),
+    article_author(?articleId, ?authorId),
+    article_created_at(?articleId, ?createdAt),
+    article_updated_at(?articleId, ?updatedAt),
+    user_username(?authorId, ?username),
+    user_bio(?authorId, ?bio),
+    user_image(?authorId, ?image),
+    article_tag_list(?articleId, ?tagList),
+    favorite_count(?articleId, ?favoritesCount)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "article": {
+                "slug": ?slug,
+                "title": ?title,
+                "description": ?description,
+                "body": ?bodyText,
+                "tagList": ?tagList,
+                "createdAt": ?createdAt,
+                "updatedAt": ?updatedAt,
+                "favorited": ?favorited,
+                "favoritesCount": ?favoritesCount,
+                "author": {
+                    "username": ?username,
+                    "bio": ?bio,
+                    "image": ?image,
+                    "following": ?following
+                }
+            }
+        }])
+}
+
+sync HandleUpdateArticleNotFound
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_error(?getArticle, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 404, error: "article not found"])
+}
+
+sync HandleUpdateArticleForbidden
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_output(?getArticle, "article", ?articleId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+where {
+    article_author(?articleId, ?authorId),
+    ?userId != ?authorId
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 403, error: "forbidden"])
+}
+
+sync HandleUpdateArticleValidationError
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "PUT"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?update),
+    action_invoked(?update, "Article", "update", ?flow, _),
+    action_error(?update, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?update, ?flow)
+}
+then {
+    invoke_action("Web", "respondValidationError",
+        [request: ?reqId, errors: {"body": [?error]}])
+}

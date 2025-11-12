@@ -1,0 +1,214 @@
+# Get Single Article Synchronizations
+
+sync GetArticleBySlug
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_input(?req, "params", ?params),
+    action_output(?req, "request", ?reqId)
+}
+where {
+    json_path(?params, "slug", ?slug)
+}
+then {
+    invoke_action("Article", "getBySlug", [slug: ?slug])
+}
+
+sync RespondGetArticleUnauthenticated
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_output(?getArticle, "article", ?articleId),
+    action_output(?getArticle, "author", ?authorId),
+
+    in_flow(?req, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+where {
+    article_slug(?articleId, ?slug),
+    article_title(?articleId, ?title),
+    article_description(?articleId, ?description),
+    article_body(?articleId, ?bodyText),
+    article_created_at(?articleId, ?createdAt),
+    article_updated_at(?articleId, ?updatedAt),
+    user_username(?authorId, ?username),
+    user_bio(?authorId, ?bio),
+    user_image(?authorId, ?image),
+    article_tag_list(?articleId, ?tagList),
+    favorite_count(?articleId, ?favoritesCount)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "article": {
+                "slug": ?slug,
+                "title": ?title,
+                "description": ?description,
+                "body": ?bodyText,
+                "tagList": ?tagList,
+                "createdAt": ?createdAt,
+                "updatedAt": ?updatedAt,
+                "favorited": false,
+                "favoritesCount": ?favoritesCount,
+                "author": {
+                    "username": ?username,
+                    "bio": ?bio,
+                    "image": ?image,
+                    "following": false
+                }
+            }
+        }])
+}
+
+sync GetArticleAuthenticated
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/:slug"),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_output(?getToken, "token", ?token),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_input(?verify, "token", ?token),
+    action_output(?verify, "user", ?viewerId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_output(?getArticle, "article", ?articleId),
+    action_output(?getArticle, "author", ?authorId),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+then {
+    invoke_action("Favorite", "isFavorited", [article: ?articleId, user: ?viewerId])
+}
+
+sync CheckArticleAuthorFollowing
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/:slug"),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?viewerId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_output(?getArticle, "article", ?articleId),
+    action_output(?getArticle, "author", ?authorId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+then {
+    invoke_action("Following", "isFollowing", [follower: ?viewerId, target: ?authorId])
+}
+
+sync RespondGetArticleAuthenticated
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_output(?getArticle, "article", ?articleId),
+    action_output(?getArticle, "author", ?authorId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?viewerId),
+
+    action_completed(?checkFav),
+    action_invoked(?checkFav, "Favorite", "isFavorited", ?flow, _),
+    action_input(?checkFav, "article", ?articleId),
+    action_input(?checkFav, "user", ?viewerId),
+    action_output(?checkFav, "favorited", ?favorited),
+
+    action_completed(?checkFollow),
+    action_invoked(?checkFollow, "Following", "isFollowing", ?flow, _),
+    action_input(?checkFollow, "follower", ?viewerId),
+    action_input(?checkFollow, "target", ?authorId),
+    action_output(?checkFollow, "following", ?following),
+
+    in_flow(?req, ?flow),
+    in_flow(?getArticle, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?checkFav, ?flow),
+    in_flow(?checkFollow, ?flow)
+}
+where {
+    article_slug(?articleId, ?slug),
+    article_title(?articleId, ?title),
+    article_description(?articleId, ?description),
+    article_body(?articleId, ?bodyText),
+    article_created_at(?articleId, ?createdAt),
+    article_updated_at(?articleId, ?updatedAt),
+    user_username(?authorId, ?username),
+    user_bio(?authorId, ?bio),
+    user_image(?authorId, ?image),
+    article_tag_list(?articleId, ?tagList),
+    favorite_count(?articleId, ?favoritesCount)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "article": {
+                "slug": ?slug,
+                "title": ?title,
+                "description": ?description,
+                "body": ?bodyText,
+                "tagList": ?tagList,
+                "createdAt": ?createdAt,
+                "updatedAt": ?updatedAt,
+                "favorited": ?favorited,
+                "favoritesCount": ?favoritesCount,
+                "author": {
+                    "username": ?username,
+                    "bio": ?bio,
+                    "image": ?image,
+                    "following": ?following
+                }
+            }
+        }])
+}
+
+sync HandleArticleNotFound
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/:slug"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_error(?getArticle, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 404, error: "article not found"])
+}

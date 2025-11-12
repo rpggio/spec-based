@@ -1,0 +1,486 @@
+# Comment Synchronizations
+
+sync AuthenticateCreateComment
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+    action_output(?req, "request", ?reqId)
+}
+then {
+    invoke_action("Web", "getAuthToken", [request: ?reqId])
+}
+
+sync VerifyCreateCommentToken
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_input(?getToken, "request", ?reqId),
+    action_output(?getToken, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow)
+}
+then {
+    invoke_action("JWT", "verify", [token: ?token])
+}
+
+sync RetrieveArticleForComment
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+    action_input(?req, "params", ?params)
+}
+where {
+    json_path(?params, "slug", ?slug)
+}
+then {
+    invoke_action("Article", "getBySlug", [slug: ?slug])
+}
+
+sync CreateComment
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+    action_input(?req, "body", ?body),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?authorId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_output(?getArticle, "article", ?articleId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+where {
+    uuid_generate(?commentId),
+    uuid_generate(?id),
+    json_path(?body, "comment.body", ?bodyText)
+}
+then {
+    invoke_action("Comment", "create",
+        [comment: ?commentId, id: ?id, body: ?bodyText, article: ?articleId, author: ?authorId])
+}
+
+sync RespondCreateCommentSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?create),
+    action_invoked(?create, "Comment", "create", ?flow, _),
+    action_output(?create, "comment", ?commentId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?authorId),
+
+    in_flow(?req, ?flow),
+    in_flow(?create, ?flow),
+    in_flow(?verify, ?flow)
+}
+where {
+    comment_id(?commentId, ?id),
+    comment_body(?commentId, ?bodyText),
+    comment_created_at(?commentId, ?createdAt),
+    comment_updated_at(?commentId, ?updatedAt),
+    user_username(?authorId, ?username),
+    user_bio(?authorId, ?bio),
+    user_image(?authorId, ?image)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 201, body: {
+            "comment": {
+                "id": ?id,
+                "body": ?bodyText,
+                "createdAt": ?createdAt,
+                "updatedAt": ?updatedAt,
+                "author": {
+                    "username": ?username,
+                    "bio": ?bio,
+                    "image": ?image,
+                    "following": false
+                }
+            }
+        }])
+}
+
+sync HandleCreateCommentArticleNotFound
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_error(?getArticle, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 404, error: "article not found"])
+}
+
+sync HandleCreateCommentValidationError
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "POST"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?create),
+    action_invoked(?create, "Comment", "create", ?flow, _),
+    action_error(?create, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?create, ?flow)
+}
+then {
+    invoke_action("Web", "respondValidationError",
+        [request: ?reqId, errors: {"body": [?error]}])
+}
+
+sync RetrieveArticleForListComments
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+    action_input(?req, "params", ?params)
+}
+where {
+    json_path(?params, "slug", ?slug)
+}
+then {
+    invoke_action("Article", "getBySlug", [slug: ?slug])
+}
+
+sync ListComments
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_output(?getArticle, "article", ?articleId),
+
+    in_flow(?req, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+then {
+    invoke_action("Comment", "list", [article: ?articleId])
+}
+
+sync HandleListCommentsArticleNotFound
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getArticle),
+    action_invoked(?getArticle, "Article", "getBySlug", ?flow, _),
+    action_error(?getArticle, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?getArticle, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 404, error: "article not found"])
+}
+
+sync RespondListCommentsUnauthenticated
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?list),
+    action_invoked(?list, "Comment", "list", ?flow, _),
+    action_output(?list, "comments", ?comments),
+
+    in_flow(?req, ?flow),
+    in_flow(?list, ?flow)
+}
+where {
+    list_member(?comment, ?comments),
+    comment_id(?comment, ?id),
+    comment_body(?comment, ?bodyText),
+    comment_author(?comment, ?authorId),
+    comment_created_at(?comment, ?createdAt),
+    comment_updated_at(?comment, ?updatedAt),
+    user_username(?authorId, ?username),
+    user_bio(?authorId, ?bio),
+    user_image(?authorId, ?image)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "comments": [
+                {
+                    "id": ?id,
+                    "body": ?bodyText,
+                    "createdAt": ?createdAt,
+                    "updatedAt": ?updatedAt,
+                    "author": {
+                        "username": ?username,
+                        "bio": ?bio,
+                        "image": ?image,
+                        "following": false
+                    }
+                }
+            ]
+        }])
+}
+
+sync EnrichCommentListFollowing
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?viewerId),
+
+    action_completed(?list),
+    action_invoked(?list, "Comment", "list", ?flow, _),
+    action_output(?list, "comments", ?comments),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?list, ?flow)
+}
+where {
+    list_member(?comment, ?comments),
+    comment_author(?comment, ?authorId)
+}
+then {
+    invoke_action("Following", "isFollowing", [follower: ?viewerId, target: ?authorId])
+}
+
+sync RespondListCommentsAuthenticated
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "GET"),
+    action_input(?req, "path", "/api/articles/:slug/comments"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?viewerId),
+
+    action_completed(?list),
+    action_invoked(?list, "Comment", "list", ?flow, _),
+    action_output(?list, "comments", ?comments),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?list, ?flow)
+}
+where {
+    list_member(?comment, ?comments),
+    comment_id(?comment, ?id),
+    comment_body(?comment, ?bodyText),
+    comment_author(?comment, ?authorId),
+    comment_created_at(?comment, ?createdAt),
+    comment_updated_at(?comment, ?updatedAt),
+    user_username(?authorId, ?username),
+    user_bio(?authorId, ?bio),
+    user_image(?authorId, ?image),
+    following_following(?viewerId, ?authorId, ?following)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 200, body: {
+            "comments": [
+                {
+                    "id": ?id,
+                    "body": ?bodyText,
+                    "createdAt": ?createdAt,
+                    "updatedAt": ?updatedAt,
+                    "author": {
+                        "username": ?username,
+                        "bio": ?bio,
+                        "image": ?image,
+                        "following": ?following
+                    }
+                }
+            ]
+        }])
+}
+
+sync AuthenticateDeleteComment
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/comments/:id"),
+    action_output(?req, "request", ?reqId)
+}
+then {
+    invoke_action("Web", "getAuthToken", [request: ?reqId])
+}
+
+sync VerifyDeleteCommentToken
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/comments/:id"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getToken),
+    action_invoked(?getToken, "Web", "getAuthToken", ?flow, _),
+    action_input(?getToken, "request", ?reqId),
+    action_output(?getToken, "token", ?token),
+
+    in_flow(?req, ?flow),
+    in_flow(?getToken, ?flow)
+}
+then {
+    invoke_action("JWT", "verify", [token: ?token])
+}
+
+sync RetrieveCommentForDelete
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/comments/:id"),
+    action_input(?req, "params", ?params)
+}
+where {
+    json_path(?params, "id", ?id)
+}
+then {
+    invoke_action("Comment", "getById", [id: ?id])
+}
+
+sync VerifyDeleteCommentOwnership
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/comments/:id"),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?getComment),
+    action_invoked(?getComment, "Comment", "getById", ?flow, _),
+    action_output(?getComment, "comment", ?commentId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?getComment, ?flow)
+}
+where {
+    comment_author(?commentId, ?authorId),
+    ?userId = ?authorId
+}
+then {
+    invoke_action("Comment", "delete", [comment: ?commentId])
+}
+
+sync RespondDeleteCommentSuccess
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/comments/:id"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?delete),
+    action_invoked(?delete, "Comment", "delete", ?flow, _),
+    action_output(?delete, "comment", ?commentId),
+
+    in_flow(?req, ?flow),
+    in_flow(?delete, ?flow)
+}
+then {
+    invoke_action("Web", "respond",
+        [request: ?reqId, status: 204, body: {}])
+}
+
+sync HandleDeleteCommentNotFound
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/comments/:id"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?getComment),
+    action_invoked(?getComment, "Comment", "getById", ?flow, _),
+    action_error(?getComment, ?error),
+
+    in_flow(?req, ?flow),
+    in_flow(?getComment, ?flow)
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 404, error: "comment not found"])
+}
+
+sync HandleDeleteCommentForbidden
+when {
+    action_completed(?req),
+    action_invoked(?req, "Web", "request", ?flow, _),
+    action_input(?req, "method", "DELETE"),
+    action_input(?req, "path", "/api/articles/:slug/comments/:id"),
+    action_output(?req, "request", ?reqId),
+
+    action_completed(?verify),
+    action_invoked(?verify, "JWT", "verify", ?flow, _),
+    action_output(?verify, "user", ?userId),
+
+    action_completed(?getComment),
+    action_invoked(?getComment, "Comment", "getById", ?flow, _),
+    action_output(?getComment, "comment", ?commentId),
+
+    in_flow(?req, ?flow),
+    in_flow(?verify, ?flow),
+    in_flow(?getComment, ?flow)
+}
+where {
+    comment_author(?commentId, ?authorId),
+    ?userId != ?authorId
+}
+then {
+    invoke_action("Web", "respondError",
+        [request: ?reqId, status: 403, error: "forbidden"])
+}
